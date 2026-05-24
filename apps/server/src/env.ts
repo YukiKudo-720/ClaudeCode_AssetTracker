@@ -1,5 +1,12 @@
-import 'dotenv/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import dotenv from 'dotenv';
 import { z } from 'zod';
+
+// project root の .env を明示的にロード (cwd 依存だと apps/server から起動時に拾えない)
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(__dirname, '..', '..', '..');
+dotenv.config({ path: path.join(repoRoot, '.env') });
 
 const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1),

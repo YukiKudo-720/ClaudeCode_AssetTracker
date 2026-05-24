@@ -6,7 +6,7 @@
 // ブラウザが開くので Passkey でログインし、ログイン後にこのターミナルで Enter。
 // セッションは data/playwright-profiles/moneyforward/ に保存される。
 
-import { runLoginWizard } from '../apps/server/src/adapters/moneyforward/login-wizard.js';
+import { runLoginWizard } from '../src/adapters/moneyforward/login-wizard.js';
 
 runLoginWizard()
   .then(() => {

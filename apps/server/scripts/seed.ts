@@ -6,6 +6,7 @@
 // 冪等 (upsert)。slug をキーに既存があれば name/sortOrder を更新、なければ作成。
 // ユーザーがアプリ上で削除・編集した Category は touch しない (slug が異なるため)。
 
+import '../src/env.js'; // side-effect: project root の .env をロード
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
