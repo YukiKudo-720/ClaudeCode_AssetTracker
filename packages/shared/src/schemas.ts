@@ -114,3 +114,65 @@ export const ScrapeRunSummarySchema = z.object({
   accountsTouched: z.number(),
 });
 export type ScrapeRunSummary = z.infer<typeof ScrapeRunSummarySchema>;
+
+// /api/holdings
+export const HoldingAggSchema = z.object({
+  securityId: z.string(),
+  symbol: z.string(),
+  name: z.string(),
+  exchange: z.string().nullable(),
+  currency: z.string(),
+  assetClass: z.string(),
+  region: z.string().nullable(),
+  sector: z.string().nullable(),
+  totalQuantity: z.number(),
+  totalValueJpy: z.number(),
+  totalCostJpy: z.number(),
+  unrealizedPnlJpy: z.number().nullable(),
+  unrealizedPnlRatio: z.number().nullable(),
+  accounts: z.array(
+    z.object({
+      accountId: z.string(),
+      institution: z.string(),
+      label: z.string(),
+      quantity: z.number(),
+      valueJpy: z.number(),
+      avgCostNative: z.number().nullable(),
+    }),
+  ),
+});
+export type HoldingAgg = z.infer<typeof HoldingAggSchema>;
+
+export const HoldingsResponseSchema = z.object({
+  capturedDate: z.string().nullable(),
+  holdings: z.array(HoldingAggSchema),
+});
+export type HoldingsResponse = z.infer<typeof HoldingsResponseSchema>;
+
+// /api/allocation
+export const AllocationResponseSchema = z.object({
+  capturedDate: z.string().nullable(),
+  by: z.enum(['currency', 'assetClass', 'region', 'institution']),
+  totalJpy: z.number(),
+  buckets: z.array(
+    z.object({
+      key: z.string(),
+      label: z.string(),
+      valueJpy: z.number(),
+      ratio: z.number(),
+    }),
+  ),
+});
+export type AllocationResponse = z.infer<typeof AllocationResponseSchema>;
+
+// /api/history/total
+export const HistoryTotalResponseSchema = z.object({
+  points: z.array(
+    z.object({
+      date: z.string(),
+      totalJpy: z.number(),
+      cashJpy: z.number(),
+    }),
+  ),
+});
+export type HistoryTotalResponse = z.infer<typeof HistoryTotalResponseSchema>;

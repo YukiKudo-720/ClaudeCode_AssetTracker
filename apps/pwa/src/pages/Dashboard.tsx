@@ -1,5 +1,6 @@
 import { useAccounts } from '../api/queries.js';
 import { INSTITUTION_LABELS, type Institution } from '@asset-tracker/shared';
+import { AllocationPie } from '../components/AllocationPie.js';
 
 export function Dashboard() {
   const { data: accounts, isLoading, isError } = useAccounts();
@@ -24,6 +25,13 @@ export function Dashboard() {
         <p className="text-3xl font-bold mt-1 tabular-nums">
           ¥{total.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
         </p>
+      </section>
+
+      <section className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <AllocationPie by="assetClass" title="資産クラス別" />
+        <AllocationPie by="currency" title="通貨別" />
+        <AllocationPie by="region" title="地域別" />
+        <AllocationPie by="institution" title="機関別" />
       </section>
 
       <section>

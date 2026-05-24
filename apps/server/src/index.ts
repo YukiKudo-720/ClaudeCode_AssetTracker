@@ -5,6 +5,9 @@ import { logger } from './logger.js';
 import { bearerAuth } from './auth.js';
 import { registerAccountRoutes } from './routes/accounts.js';
 import { registerRunRoutes } from './routes/run.js';
+import { registerHoldingsRoutes } from './routes/holdings.js';
+import { registerAllocationRoutes } from './routes/allocation.js';
+import { registerHistoryRoutes } from './routes/history.js';
 
 async function main(): Promise<void> {
   const app = Fastify({ loggerInstance: logger });
@@ -27,6 +30,9 @@ async function main(): Promise<void> {
     instance.addHook('preHandler', bearerAuth);
     registerAccountRoutes(instance);
     registerRunRoutes(instance);
+    registerHoldingsRoutes(instance);
+    registerAllocationRoutes(instance);
+    registerHistoryRoutes(instance);
   });
 
   try {

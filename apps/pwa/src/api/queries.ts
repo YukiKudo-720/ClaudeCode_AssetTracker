@@ -1,5 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import type { AccountSummary, ScrapeRunSummary } from '@asset-tracker/shared';
+import type {
+  AccountSummary,
+  AllocationResponse,
+  HistoryTotalResponse,
+  HoldingsResponse,
+  ScrapeRunSummary,
+} from '@asset-tracker/shared';
 import { apiFetch } from './client.js';
 
 export function useAccounts() {
@@ -13,6 +19,27 @@ export function useScrapeRuns() {
   return useQuery({
     queryKey: ['runs'],
     queryFn: () => apiFetch<ScrapeRunSummary[]>('/api/runs'),
+  });
+}
+
+export function useHoldings() {
+  return useQuery({
+    queryKey: ['holdings'],
+    queryFn: () => apiFetch<HoldingsResponse>('/api/holdings'),
+  });
+}
+
+export function useAllocation(by: 'currency' | 'assetClass' | 'region' | 'institution') {
+  return useQuery({
+    queryKey: ['allocation', by],
+    queryFn: () => apiFetch<AllocationResponse>(`/api/allocation?by=${by}`),
+  });
+}
+
+export function useHistoryTotal(days: number = 90) {
+  return useQuery({
+    queryKey: ['history-total', days],
+    queryFn: () => apiFetch<HistoryTotalResponse>(`/api/history/total?days=${days}`),
   });
 }
 
