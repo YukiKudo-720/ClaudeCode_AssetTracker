@@ -122,7 +122,7 @@ def fetch_account(ctx, acc_row) -> dict:
 
     return {
         'accId': acc_id,
-        'label': f'Moomoo {card_num[-4:]}',  # 末尾 4 桁で識別
+        'label': 'moomoo証券',  # 機関名と統一 (複数口座あれば将来 disambig)
         'accType': str(acc_row.get('acc_type', '')),
         'baseCurrency': base_currency,
         'cashNative': cash_native,

@@ -19,17 +19,22 @@ export function Accounts() {
         </tr>
       </thead>
       <tbody>
-        {data.map((a) => (
-          <tr key={a.id} className="border-b border-[var(--color-border)]">
-            <td className="py-2 font-medium">{INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}</td>
-            <td>{a.label}</td>
-            <td>{a.kind === 'bank' ? '銀行' : '証券'}</td>
-            <td className="text-[var(--color-text-muted)]">{a.source}</td>
-            <td className="text-right tabular-nums">
-              {a.latestTotalJpy != null ? `¥${a.latestTotalJpy.toLocaleString('ja-JP')}` : '—'}
-            </td>
-          </tr>
-        ))}
+        {data.map((a) => {
+          const instLabel = INSTITUTION_LABELS[a.institution as Institution] ?? a.institution;
+          return (
+            <tr key={a.id} className="border-b border-[var(--color-border)]">
+              <td className="py-2 font-medium">{instLabel}</td>
+              <td className="text-[var(--color-text-muted)]">
+                {a.label !== instLabel ? a.label : ''}
+              </td>
+              <td>{a.kind === 'bank' ? '銀行' : '証券'}</td>
+              <td className="text-[var(--color-text-muted)]">{a.source}</td>
+              <td className="text-right tabular-nums">
+                {a.latestTotalJpy != null ? `¥${a.latestTotalJpy.toLocaleString('ja-JP')}` : '—'}
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

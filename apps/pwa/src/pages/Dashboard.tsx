@@ -37,22 +37,27 @@ export function Dashboard() {
       <section>
         <h2 className="text-sm font-semibold text-[var(--color-text-muted)] mb-2">口座別残高</h2>
         <ul className="space-y-2">
-          {accounts.map((a) => (
-            <li
-              key={a.id}
-              className="bg-[var(--color-bg-elevated)] rounded-lg p-3 border border-[var(--color-border)] flex justify-between items-center"
-            >
-              <div>
-                <p className="font-medium">{INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}</p>
-                <p className="text-xs text-[var(--color-text-muted)]">{a.label}</p>
-              </div>
-              <p className="tabular-nums">
-                {a.latestTotalJpy != null
-                  ? `¥${a.latestTotalJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`
-                  : '—'}
-              </p>
-            </li>
-          ))}
+          {accounts.map((a) => {
+            const instLabel = INSTITUTION_LABELS[a.institution as Institution] ?? a.institution;
+            return (
+              <li
+                key={a.id}
+                className="bg-[var(--color-bg-elevated)] rounded-lg p-3 border border-[var(--color-border)] flex justify-between items-center"
+              >
+                <div>
+                  <p className="font-medium">{instLabel}</p>
+                  {a.label && a.label !== instLabel && (
+                    <p className="text-xs text-[var(--color-text-muted)]">{a.label}</p>
+                  )}
+                </div>
+                <p className="tabular-nums">
+                  {a.latestTotalJpy != null
+                    ? `¥${a.latestTotalJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`
+                    : '—'}
+                </p>
+              </li>
+            );
+          })}
         </ul>
       </section>
     </div>

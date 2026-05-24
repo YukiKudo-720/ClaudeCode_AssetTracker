@@ -299,21 +299,37 @@ function mergeDuplicateHoldings(rows: HoldingUpdate[]): HoldingUpdate[] {
   return Array.from(map.values());
 }
 
-function buildStockHolding(row: RawStockRow): HoldingUpdate {
-  // 4 桁数字 → 日本株 (TSE)、それ以外 → デフォルト null exchange / region 推定
+function buildStockHolding(row: RawStockRow, usdFx: number): HoldingUpdate {
+  // 4 桁数字 → 日本株 (TSE)、それ以外 → 米国株扱い (NASDAQ/NYSE 判別不可なので exchange=null)
   const isJpStock = /^\d{4}$/.test(row.symbol);
-  const marketPrice = row.quantity > 0 ? row.marketValue / row.quantity : 0;
+  if (isJpStock) {
+    const priceJpy = row.quantity > 0 ? row.marketValue / row.quantity : 0;
+    return {
+      symbol: row.symbol,
+      exchange: 'TSE',
+      name: row.name,
+      currency: 'JPY',
+      assetClass: 'stock',
+      region: 'jp',
+      quantity: row.quantity,
+      marketPriceNative: priceJpy,
+      ...(row.avgCost > 0 ? { avgCostNative: row.avgCost } : {}),
+    };
+  }
+  // 米国株: MF は JPY 換算値を表示しているので USD に逆算
+  // avgCost も JPY 表示 → USD 換算 (簡易: 取得時の fx を使ってない近似)
+  const valueUsd = usdFx > 0 ? row.marketValue / usdFx : row.marketValue;
+  const priceUsd = row.quantity > 0 ? valueUsd / row.quantity : 0;
+  const avgCostUsd = row.avgCost > 0 && usdFx > 0 ? row.avgCost / usdFx : 0;
   return {
     symbol: row.symbol,
-    ...(isJpStock ? { exchange: 'TSE' } : {}),
     name: row.name,
-    // v1: MF は全て JPY 表示なので JPY 統一。後で US株は USD に差し替え予定
-    currency: 'JPY',
+    currency: 'USD',
     assetClass: 'stock',
-    ...(isJpStock ? { region: 'jp' as const } : { region: 'us' as const }),
+    region: 'us',
     quantity: row.quantity,
-    marketPriceNative: marketPrice,
-    ...(row.avgCost > 0 ? { avgCostNative: row.avgCost } : {}),
+    marketPriceNative: priceUsd,
+    ...(avgCostUsd > 0 ? { avgCostNative: avgCostUsd } : {}),
   };
 }
 
@@ -397,9 +413,11 @@ export async function scrapeMoneyForward(opts: {
           cashHoldings.push(buildCashHolding(cur, native));
         }
 
+        // US株のJPY→USD逆算用に fx を 1 回取得
+        const usdFx = await getFx('USD');
         const holdings = mergeDuplicateHoldings([
           ...cashHoldings,
-          ...detail.stocks.map(buildStockHolding),
+          ...detail.stocks.map((s) => buildStockHolding(s, usdFx)),
           ...detail.mutualFunds.map(buildMutualFundHolding),
         ]);
         updates.push({
