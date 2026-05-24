@@ -1,9 +1,11 @@
 import type { AccountUpdate, AdapterContext } from '../adapters/types.js';
 import { INSTITUTION_KIND } from '@asset-tracker/shared';
+import { toJstDateString } from '../lib/date.js';
 
 // AdapterResult を Prisma へ反映する共通ロジック。
-// 機関+ラベルで Account を find-or-create、銘柄も Security を find-or-create し、
-// 1 つの AccountSnapshot に紐付く HoldingSnapshot 群を書き込む。
+//
+// 同日中の再 scrape は AccountSnapshot/HoldingSnapshot を上書き (capturedDate で upsert)。
+// 日跨ぎは新行。過去の Holding は update に含まれなくても削除しない (履歴を残す)。
 
 export async function persistAccountUpdate(
   ctx: AdapterContext,
@@ -11,18 +13,11 @@ export async function persistAccountUpdate(
   source: string,
 ): Promise<{ accountId: string; snapshotId: string }> {
   const { prisma } = ctx;
+  const capturedDate = toJstDateString(update.capturedAt);
 
-  // 1. Account の find-or-create
+  // 1. Account を find-or-create ((institution, label) で一意)
   const account = await prisma.account.upsert({
-    where: {
-      // institution + label の組み合わせで一意 (将来 unique 制約を schema に追加候補)
-      id: (
-        await prisma.account.findFirst({
-          where: { institution: update.institution, label: update.label },
-          select: { id: true },
-        })
-      )?.id ?? '__new__',
-    },
+    where: { institution_label: { institution: update.institution, label: update.label } },
     update: { updatedAt: new Date() },
     create: {
       kind: INSTITUTION_KIND[update.institution],
@@ -30,13 +25,10 @@ export async function persistAccountUpdate(
       source,
       label: update.label,
       baseCurrency: update.baseCurrency,
-      tags: '[]',
-      meta: '{}',
-      enabled: true,
     },
   });
 
-  // 2. 各 Holding の Security と Holding を find-or-create
+  // 2. 各 Holding の Security と Holding を find-or-create + HoldingSnapshot 用データ計算
   type ResolvedHolding = {
     holdingId: string;
     quantity: number;
@@ -48,7 +40,8 @@ export async function persistAccountUpdate(
   };
 
   const resolved: ResolvedHolding[] = [];
-  let holdingsValueNative = 0;
+  let holdingsValueInAccountCurrency = 0;
+  const accountFx = await ctx.getFxToJpy(update.baseCurrency);
 
   for (const h of update.holdings) {
     const security = await prisma.security.upsert({
@@ -65,50 +58,57 @@ export async function persistAccountUpdate(
       },
     });
 
-    const holding = await prisma.holding.upsert({
-      where: {
-        accountId_securityId_subAccount: {
-          accountId: account.id,
-          securityId: security.id,
-          subAccount: '',
-        },
-      },
-      update: {},
-      create: {
-        accountId: account.id,
-        securityId: security.id,
-        subAccount: null,
-      },
+    // Holding は subAccount が nullable な複合 unique。Prisma の upsert が
+    // null を含む where を扱いにくいので findFirst + create フォールバック
+    let holding = await prisma.holding.findFirst({
+      where: { accountId: account.id, securityId: security.id, subAccount: null },
     });
+    if (!holding) {
+      holding = await prisma.holding.create({
+        data: { accountId: account.id, securityId: security.id, subAccount: null },
+      });
+    }
 
-    const fx = await ctx.getFxToJpy(h.currency);
+    const holdingFx = await ctx.getFxToJpy(h.currency);
     const marketValueNative = h.quantity * h.marketPriceNative;
-    const marketValueJpy = marketValueNative * fx;
-    holdingsValueNative += h.currency === update.baseCurrency
-      ? marketValueNative
-      : marketValueNative * (fx / (await ctx.getFxToJpy(update.baseCurrency)));
+    const marketValueJpy = marketValueNative * holdingFx;
+
+    // 口座総額 (口座通貨ベース) に積む — クロス通貨の場合は accountFx で正規化
+    holdingsValueInAccountCurrency +=
+      h.currency === update.baseCurrency
+        ? marketValueNative
+        : marketValueJpy / accountFx;
 
     resolved.push({
       holdingId: holding.id,
       quantity: h.quantity,
       marketPriceNative: h.marketPriceNative,
-      marketPriceJpy: h.marketPriceNative * fx,
+      marketPriceJpy: h.marketPriceNative * holdingFx,
       marketValueNative,
       marketValueJpy,
       ...(h.avgCostNative !== undefined ? { avgCostNative: h.avgCostNative } : {}),
     });
   }
 
-  // 3. AccountSnapshot 作成
-  const accountFx = await ctx.getFxToJpy(update.baseCurrency);
-  const totalValueNative = update.cashNative + holdingsValueNative;
+  // 3. AccountSnapshot を upsert ((accountId, capturedDate) で同日上書き)
+  const totalValueNative = update.cashNative + holdingsValueInAccountCurrency;
   const totalValueJpy = totalValueNative * accountFx;
   const cashJpy = update.cashNative * accountFx;
 
-  const snapshot = await prisma.accountSnapshot.create({
-    data: {
+  const snapshot = await prisma.accountSnapshot.upsert({
+    where: { accountId_capturedDate: { accountId: account.id, capturedDate } },
+    update: {
+      capturedAt: update.capturedAt,
+      totalValueNative,
+      totalValueJpy,
+      cashNative: update.cashNative,
+      cashJpy,
+      fxRate: accountFx,
+    },
+    create: {
       accountId: account.id,
       capturedAt: update.capturedAt,
+      capturedDate,
       totalValueNative,
       totalValueJpy,
       cashNative: update.cashNative,
@@ -117,19 +117,31 @@ export async function persistAccountUpdate(
     },
   });
 
-  // 4. HoldingSnapshot 群を作成
-  if (resolved.length > 0) {
-    await prisma.holdingSnapshot.createMany({
-      data: resolved.map((r) => ({
+  // 4. HoldingSnapshot を各 holding ごとに upsert ((holdingId, capturedDate))
+  //    今 update に含まれない過去の Holding の Snapshot には触らない (履歴保持)
+  for (const r of resolved) {
+    await prisma.holdingSnapshot.upsert({
+      where: { holdingId_capturedDate: { holdingId: r.holdingId, capturedDate } },
+      update: {
         snapshotId: snapshot.id,
-        holdingId: r.holdingId,
         quantity: r.quantity,
         marketPriceNative: r.marketPriceNative,
         marketPriceJpy: r.marketPriceJpy,
         marketValueNative: r.marketValueNative,
         marketValueJpy: r.marketValueJpy,
         ...(r.avgCostNative !== undefined ? { avgCostNative: r.avgCostNative } : {}),
-      })),
+      },
+      create: {
+        snapshotId: snapshot.id,
+        holdingId: r.holdingId,
+        capturedDate,
+        quantity: r.quantity,
+        marketPriceNative: r.marketPriceNative,
+        marketPriceJpy: r.marketPriceJpy,
+        marketValueNative: r.marketValueNative,
+        marketValueJpy: r.marketValueJpy,
+        ...(r.avgCostNative !== undefined ? { avgCostNative: r.avgCostNative } : {}),
+      },
     });
   }
 

@@ -1,4 +1,5 @@
 import { prisma } from './db.js';
+import { toJstDateString } from './lib/date.js';
 import type { Logger } from 'pino';
 
 const RATE_TTL_HOURS = 6;
@@ -18,7 +19,7 @@ async function fetchRateFromApi(base: string, quote: string): Promise<number> {
   return rate;
 }
 
-/** {base} → JPY のレートを取得 (DB キャッシュ TTL 6h) */
+/** {base} → JPY のレートを取得 (TTL 6h、capturedDate で同日 upsert) */
 export async function getRateToJpy(base: string, logger?: Logger): Promise<number> {
   if (base === 'JPY') return 1;
 
@@ -30,9 +31,13 @@ export async function getRateToJpy(base: string, logger?: Logger): Promise<numbe
   if (cached) return Number(cached.rate);
 
   try {
+    const now = new Date();
+    const capturedDate = toJstDateString(now);
     const rate = await fetchRateFromApi(base, 'JPY');
-    await prisma.fxRate.create({
-      data: { base, quote: 'JPY', rate, capturedAt: new Date() },
+    await prisma.fxRate.upsert({
+      where: { base_quote_capturedDate: { base, quote: 'JPY', capturedDate } },
+      update: { rate, capturedAt: now },
+      create: { base, quote: 'JPY', rate, capturedAt: now, capturedDate },
     });
     return rate;
   } catch (err) {
@@ -46,7 +51,7 @@ export async function getRateToJpy(base: string, logger?: Logger): Promise<numbe
   }
 }
 
-/** 同一 run 内で複数回呼ばれた場合に再fetch しないキャッシュ */
+/** 同一 run 内で複数回呼ばれた場合に再 fetch しないキャッシュ */
 export function createFxCache(logger?: Logger): (base: string) => Promise<number> {
   const cache = new Map<string, Promise<number>>();
   return (base: string) => {

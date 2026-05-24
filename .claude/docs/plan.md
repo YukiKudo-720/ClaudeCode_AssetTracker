@@ -171,141 +171,56 @@ export type AssetClass =
 // 地域 (国別配分ビューの軸)
 export type Region =
   | 'jp' | 'us' | 'hk' | 'cn' | 'eu' | 'em' | 'global' | 'other';
+
+// 口座内の税区分 (NISA枠等)
+export type SubAccount =
+  | 'nisa_growth'     // NISA 成長投資枠
+  | 'nisa_tsumitate'  // NISA つみたて投資枠
+  | 'tokutei'         // 特定口座
+  | 'ippan';          // 一般口座
+
+// 取引種別 (Transaction.type)
+export type TransactionType =
+  | 'deposit' | 'withdraw'
+  | 'buy' | 'sell'
+  | 'transfer_in' | 'transfer_out'
+  | 'fee' | 'tax' | 'interest';
 ```
 
 ### 6.2 Prisma schema
 
-```prisma
-// prisma/schema.prisma
-datasource db { provider = "sqlite" url = env("DATABASE_URL") }
-generator client { provider = "prisma-client-js" }
+実体は [prisma/schema.prisma](../../prisma/schema.prisma) を正とする。要点だけ抜粋:
 
-// 口座 (銀行口座 or 証券口座)
-model Account {
-  id            String   @id @default(cuid())
-  kind          String   // AccountKind: bank | brokerage
-  institution   String   // Institution
-  source        String   // DataSource
-  label         String   // ユーザー命名 例: "メイン口座"
-  baseCurrency  String   // 口座の基準通貨 (JPY/USD/HKD)
-  credentialRef String?  // keytar のキー名 (例: "mf:default")
-  tags          String   @default("[]") // JSON array '["core","jp"]'
-  meta          String   @default("{}") // 任意 JSON
-  enabled       Boolean  @default(true)
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  snapshots     AccountSnapshot[]
-  holdings      Holding[]
-}
+**Account** — 口座マスタ。`(institution, label)` で一意。
 
-// 口座単位の時系列スナップショット (口座総額)
-model AccountSnapshot {
-  id               String   @id @default(cuid())
-  accountId        String
-  capturedAt       DateTime
-  totalValueNative Decimal  // 現地通貨 総額 (cash + holdings)
-  totalValueJpy    Decimal  // JPY 換算 総額
-  cashNative       Decimal  // 現地通貨 現金部分 (証券口座でも cash position を抜き出し)
-  cashJpy          Decimal  // JPY 換算 現金部分
-  fxRate           Decimal? // 換算に使ったレート
-  rawJson          String?  // 取得元の生データ (デバッグ用)
-  Account          Account  @relation(fields: [accountId], references: [id])
-  holdingSnapshots HoldingSnapshot[]
-  @@index([accountId, capturedAt])
-}
+**Security** — 銘柄マスタ。`(symbol, exchange)` で一意。口座を跨いで共有。
 
-// 銘柄マスタ (口座を跨いで共有。同じ AAPL を 楽天証券 と Webull で持っても 1 行)
-model Security {
-  id          String   @id @default(cuid())
-  symbol      String   // "7203", "AAPL", "0700.HK", "JPY_CASH" 等
-  exchange    String?  // "TSE", "NASDAQ", "HKEX", null (現金は null)
-  isin        String?  // 国際証券識別番号 (取得できれば)
-  name        String   // 表示名 "トヨタ自動車", "Apple Inc", "日本円(現金)"
-  currency    String   // 銘柄通貨 (JPY/USD/HKD)
-  assetClass  String   // AssetClass
-  region      String?  // Region
-  sector      String?  // GICS セクター等 (取れれば)
-  industry    String?  // 業種 (取れれば)
-  tags        String   @default("[]") // 自由タグ "['watchlist','core']"
-  meta        String   @default("{}") // 任意 JSON (時価総額・配当利回り等を将来追加)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-  holdings    Holding[]
-  prices      PriceSnapshot[]
-  @@unique([symbol, exchange])
-}
+**Holding** — 口座 × 銘柄のリンク。`(accountId, securityId, subAccount)` で一意。`subAccount` で NISA枠 / 特定 / 一般 を区別。
 
-// 口座 × 銘柄 のリンク (この口座でこの銘柄を持っている、という事実)
-model Holding {
-  id         String   @id @default(cuid())
-  accountId  String
-  securityId String
-  subAccount String?  // NISA成長/つみたて/特定/一般 等 (v1 では null 可)
-  meta       String   @default("{}")
-  createdAt  DateTime @default(now())
-  Account    Account  @relation(fields: [accountId], references: [id])
-  Security   Security @relation(fields: [securityId], references: [id])
-  snapshots  HoldingSnapshot[]
-  @@unique([accountId, securityId, subAccount])
-}
+**AccountSnapshot** — 口座単位の時系列。`(accountId, capturedDate)` で一意 → **同日 upsert、日跨ぎ新行**。`totalValueJpy` / `cashJpy` を持つ。
 
-// 保有数量・評価額の時系列 (Holding × 時点)
-model HoldingSnapshot {
-  id                String   @id @default(cuid())
-  snapshotId        String   // AccountSnapshot との紐付け
-  holdingId         String
-  quantity          Decimal
-  marketPriceNative Decimal
-  marketPriceJpy    Decimal
-  marketValueNative Decimal
-  marketValueJpy    Decimal
-  avgCostNative     Decimal?
-  unrealizedPnlNative Decimal?
-  unrealizedPnlJpy    Decimal?
-  AccountSnapshot   AccountSnapshot @relation(fields: [snapshotId], references: [id])
-  Holding           Holding         @relation(fields: [holdingId], references: [id])
-  @@index([holdingId])
-}
+**HoldingSnapshot** — 保有数量・評価額の時系列。`(holdingId, capturedDate)` で一意 → 銘柄別推移を AccountSnapshot を JOIN せず取得可。
 
-// 銘柄ごとの価格スナップショット (Holding がなくても watchlist 用に取れる)
-model PriceSnapshot {
-  id          String   @id @default(cuid())
-  securityId  String
-  capturedAt  DateTime
-  priceNative Decimal
-  priceJpy    Decimal
-  Security    Security @relation(fields: [securityId], references: [id])
-  @@index([securityId, capturedAt])
-}
+**PriceSnapshot** — 銘柄価格の時系列 (watchlist 用、Holding が無くても保存可)。`(securityId, capturedDate)` で一意。
 
-// 為替レート時系列
-model FxRate {
-  id         String   @id @default(cuid())
-  base       String   // "USD" 等
-  quote      String   // "JPY"
-  rate       Decimal
-  capturedAt DateTime
-  @@index([base, quote, capturedAt])
-}
+**FxRate** — 為替レート時系列。`(base, quote, capturedDate)` で一意。
 
-// スクレイピング実行履歴 (UI で可視化)
-model ScrapeRun {
-  id              String   @id @default(cuid())
-  source          String   // DataSource
-  startedAt       DateTime @default(now())
-  finishedAt      DateTime?
-  status          String   // "ok" | "error" | "running" | "needs_2fa"
-  errorMsg        String?
-  accountsTouched Int      @default(0)
-}
-```
+**Transaction** (v1.5〜) — 入出金・売買・手数料等のイベント。`(accountId, externalId)` で重複防止。`type` で種別、`subAccount` で税区分。
+
+**Dividend** (v1.5〜) — 配当受取専用 (Transaction とは別)。`exDate` / `recordDate` / `paidAt` / `dividendPerShare` 等の配当固有フィールド。NISA枠なら源泉ゼロ等の分析もしやすい。
+
+**ScrapeRun** — スクレイピング実行履歴。`status: 'ok' | 'error' | 'running' | 'needs_2fa'`。
 
 ### 6.3 設計ポイント
 
 - **Security マスタ化**: 同一銘柄 (例: 7203 トヨタ) を 楽天証券 と SBI証券 で両方持っても、Security は 1 行。`SUM(quantity)` で複数証券またぎ集約が 1 クエリ
 - **現金も Security**: `JPY_CASH` / `USD_CASH` / `HKD_CASH` を Security として持つ (assetClass='cash')。普通預金・MMF・証券口座内の余力すべて Holding として記録 → 通貨別・資産クラス別が同じクエリで取れる
+- **`capturedDate` で同日 upsert**: AccountSnapshot / HoldingSnapshot / PriceSnapshot / FxRate に `capturedDate: String` (JST "YYYY-MM-DD") + `(主キー, capturedDate)` 複合 unique を持たせる。同日中に再 scrape しても 1 行に上書きされ、日跨ぎ時のみ新行 → **日次精度の履歴を最小コストで保持**
+- **HoldingSnapshot は AccountSnapshot を JOIN せず直接時系列引ける**: `(holdingId, capturedDate)` 複合 unique で 1 銘柄 × 1 日 = 1 行が保証されるため、index 一発で銘柄推移グラフが描ける
 - **AccountSnapshot は集計値**: `totalValueJpy` `cashJpy` を持ち、Holdings の SUM と一致するよう Worker 側で検算
-- **`subAccount`** (NISA枠等) は v1 では null OK だが、unique 制約に含めて将来 NISA成長 / NISAつみたて / 特定 / 一般 を区別できる余地を残す
+- **`subAccount`** (NISA枠等): Holding / Transaction / Dividend で統一的に使う。v1 は null で開始、v1.5 で MF 取引履歴から識別
+- **Transaction / Dividend は schema 同梱、scraping は v1.5**: テーブルは今のマイグレーションで作る (後付け migrate を避ける)。データは MF 取引履歴ページから埋める
+- **イベントの重複防止**: Transaction / Dividend は `externalId` (MF / 証券会社の取引 ID) + `(accountId, externalId)` unique で同じ取引を 2 度書き込まない
 - **`meta` / `tags` / `rawJson`**: 後から分析パターンを増やせる遊び (例: meta に配当利回り、tags に "watchlist")
 - **論理削除なし**: `enabled=false` でフィルタ。Security は基本削除しない (履歴を壊さないため)
 - **整数精度**: SQLite + Prisma Decimal で 2 通貨混在の精度問題を回避

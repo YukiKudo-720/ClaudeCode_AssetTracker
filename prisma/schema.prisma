@@ -10,6 +10,10 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// =============================================================================
+// 静的マスタ (口座・銘柄)
+// =============================================================================
+
 // 口座 (銀行口座 or 証券口座)
 model Account {
   id            String   @id @default(cuid())
@@ -25,26 +29,12 @@ model Account {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  snapshots AccountSnapshot[]
-  holdings  Holding[]
-}
+  snapshots    AccountSnapshot[]
+  holdings     Holding[]
+  transactions Transaction[]
+  dividends    Dividend[]
 
-// 口座単位の時系列スナップショット
-model AccountSnapshot {
-  id               String   @id @default(cuid())
-  accountId        String
-  capturedAt       DateTime
-  totalValueNative Decimal
-  totalValueJpy    Decimal
-  cashNative       Decimal
-  cashJpy          Decimal
-  fxRate           Decimal?
-  rawJson          String?
-
-  account          Account           @relation(fields: [accountId], references: [id])
-  holdingSnapshots HoldingSnapshot[]
-
-  @@index([accountId, capturedAt])
+  @@unique([institution, label])
 }
 
 // 銘柄マスタ (口座を跨いで共有)
@@ -55,8 +45,8 @@ model Security {
   isin       String?
   name       String
   currency   String
-  assetClass String   // AssetClass
-  region     String?
+  assetClass String   // 'cash' | 'stock' | 'etf' | 'mutual_fund' | 'reit' | 'bond' | 'crypto' | 'commodity' | 'other'
+  region     String?  // 'jp' | 'us' | 'hk' | 'cn' | 'eu' | 'em' | 'global' | 'other'
   sector     String?
   industry   String?
   tags       String   @default("[]")
@@ -64,8 +54,10 @@ model Security {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  holdings Holding[]
-  prices   PriceSnapshot[]
+  holdings     Holding[]
+  prices       PriceSnapshot[]
+  transactions Transaction[]
+  dividends    Dividend[]
 
   @@unique([symbol, exchange])
 }
@@ -75,7 +67,7 @@ model Holding {
   id         String   @id @default(cuid())
   accountId  String
   securityId String
-  subAccount String?  // NISA成長 / つみたて / 特定 / 一般 (v1 では null 可)
+  subAccount String?  // 'nisa_growth' | 'nisa_tsumitate' | 'tokutei' | 'ippan' (v1 では null 可)
   meta       String   @default("{}")
   createdAt  DateTime @default(now())
 
@@ -86,11 +78,35 @@ model Holding {
   @@unique([accountId, securityId, subAccount])
 }
 
-// 保有数量・評価額の時系列 (Holding × 時点)
+// =============================================================================
+// 時系列スナップショット (1 日 1 行で upsert: 同日再 scrape は上書き、日跨ぎは新行)
+// capturedDate は JST 日付 "YYYY-MM-DD" 文字列
+// =============================================================================
+
+model AccountSnapshot {
+  id               String   @id @default(cuid())
+  accountId        String
+  capturedAt       DateTime
+  capturedDate     String   // JST "YYYY-MM-DD" — 日単位の bucket、upsert キー
+  totalValueNative Decimal
+  totalValueJpy    Decimal
+  cashNative       Decimal
+  cashJpy          Decimal
+  fxRate           Decimal?
+  rawJson          String?
+
+  account          Account           @relation(fields: [accountId], references: [id])
+  holdingSnapshots HoldingSnapshot[]
+
+  @@unique([accountId, capturedDate])
+  @@index([accountId, capturedAt])
+}
+
 model HoldingSnapshot {
   id                  String   @id @default(cuid())
   snapshotId          String
   holdingId           String
+  capturedDate        String   // JST "YYYY-MM-DD" — Holding 単位でも upsert キー
   quantity            Decimal
   marketPriceNative   Decimal
   marketPriceJpy      Decimal
@@ -103,34 +119,99 @@ model HoldingSnapshot {
   accountSnapshot AccountSnapshot @relation(fields: [snapshotId], references: [id])
   holding         Holding         @relation(fields: [holdingId], references: [id])
 
-  @@index([holdingId])
+  @@unique([holdingId, capturedDate])
+  @@index([holdingId, capturedDate])
 }
 
-// 銘柄ごとの価格スナップショット (watchlist 用に Holding なしでも保存可)
 model PriceSnapshot {
-  id          String   @id @default(cuid())
-  securityId  String
-  capturedAt  DateTime
-  priceNative Decimal
-  priceJpy    Decimal
+  id           String   @id @default(cuid())
+  securityId   String
+  capturedAt   DateTime
+  capturedDate String
+  priceNative  Decimal
+  priceJpy     Decimal
 
   security Security @relation(fields: [securityId], references: [id])
 
+  @@unique([securityId, capturedDate])
   @@index([securityId, capturedAt])
 }
 
-// 為替レート時系列
 model FxRate {
-  id         String   @id @default(cuid())
-  base       String
-  quote      String
-  rate       Decimal
-  capturedAt DateTime
+  id           String   @id @default(cuid())
+  base         String
+  quote        String
+  capturedAt   DateTime
+  capturedDate String
+  rate         Decimal
 
+  @@unique([base, quote, capturedDate])
   @@index([base, quote, capturedAt])
 }
 
-// スクレイピング実行履歴
+// =============================================================================
+// イベント (取引・配当) — v1.5 で MF 取引履歴ページから埋める。
+// externalId (MF / 証券会社の取引 ID) で重複防止 → 何度 scrape しても同じイベントは 1 行
+// =============================================================================
+
+model Transaction {
+  id           String   @id @default(cuid())
+  accountId    String
+  securityId   String?  // 入出金・利息など cash イベントは null
+  type         String   // 'deposit'/'withdraw'/'buy'/'sell'/'transfer_in'/'transfer_out'/'fee'/'tax'/'interest'
+  occurredAt   DateTime // 約定日
+  settledAt    DateTime? // 受渡日 (証券は T+2 等)
+  quantity     Decimal? // buy/sell の数量
+  priceNative  Decimal? // 単価
+  amountNative Decimal  // 受払金額 (この口座通貨、cash 増減)
+  feeNative    Decimal? // 手数料
+  taxNative    Decimal? // 源泉徴収
+  amountJpy    Decimal  // JPY 換算受払金額
+  fxRate       Decimal?
+  currency     String
+  subAccount   String?  // 'nisa_growth' | 'nisa_tsumitate' | 'tokutei' | 'ippan'
+  externalId   String?  // MF / 証券会社の取引 ID
+  note         String?
+  rawJson      String?
+
+  account  Account   @relation(fields: [accountId], references: [id])
+  security Security? @relation(fields: [securityId], references: [id])
+
+  @@unique([accountId, externalId])
+  @@index([accountId, occurredAt])
+  @@index([securityId, occurredAt])
+}
+
+model Dividend {
+  id               String   @id @default(cuid())
+  accountId        String
+  securityId       String
+  exDate           DateTime? // 権利落ち日
+  recordDate       DateTime? // 権利確定日
+  paidAt           DateTime  // 支払日
+  quantity         Decimal   // 受領時の保有数
+  dividendPerShare Decimal
+  grossNative      Decimal   // 税引前
+  taxNative        Decimal   // 源泉
+  netNative        Decimal   // 手取り
+  netJpy           Decimal
+  fxRate           Decimal?
+  currency         String
+  subAccount       String?
+  externalId       String?
+  rawJson          String?
+
+  account  Account  @relation(fields: [accountId], references: [id])
+  security Security @relation(fields: [securityId], references: [id])
+
+  @@unique([accountId, externalId])
+  @@index([securityId, paidAt])
+}
+
+// =============================================================================
+// 運用ログ
+// =============================================================================
+
 model ScrapeRun {
   id              String    @id @default(cuid())
   source          String
