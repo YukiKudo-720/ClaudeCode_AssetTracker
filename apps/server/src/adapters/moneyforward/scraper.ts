@@ -303,13 +303,22 @@ function mergeDuplicateHoldings(rows: HoldingUpdate[]): HoldingUpdate[] {
   return Array.from(map.values());
 }
 
+// 銘柄名から ETF/ETN を判定 (MF eq セクションには株式と ETF が混在するため)
+function detectStockAssetClass(name: string): 'stock' | 'etf' {
+  if (/\bETF\b|\bETN\b/i.test(name)) return 'etf';
+  if (/NEXT\s*FUNDS|NF日経|NF\s*S&P|NF\s*ナスダック|MAXIS|iFreeETF|上場インデックス|上場投信|純金信託|銀信託|プラチナ信託/i.test(name)) return 'etf';
+  if (/iShares|アイシェアーズ|アイシェア|バンガード|Vanguard|SPDR|スパイダー|Invesco|インベスコ|Direxion|ディレクション|ProShares|プロシェアーズ|WisdomTree|ウィズダムツリー|Schwab|シュワブ|\bARK\s/i.test(name)) return 'etf';
+  if (/(ブル|ベア)\s*\d*倍|レバレッジ|インバース/.test(name)) return 'etf';
+  return 'stock';
+}
+
 function buildStockHolding(row: RawStockRow): HoldingUpdate {
   // 4 桁数字 → 日本株 (TSE)、それ以外 → 米国株扱い (NASDAQ/NYSE 判別不可なので exchange=null)
   // MF は column 3 (avgCost) と column 4 (currentPrice) を native currency で表示する。
   // (JP 株は JPY/株、US 株は USD/株)。column 5 (marketValue) のみ JPY 換算。
   // → native price/avgCost をそのまま使い、value は fx で再計算させる。
   const isJpStock = /^\d{4}$/.test(row.symbol);
-  // 念のため currentPrice が 0 (取得失敗) なら value/qty にフォールバック
+  const assetClass = detectStockAssetClass(row.name);
   const priceNative = row.currentPrice > 0
     ? row.currentPrice
     : row.quantity > 0
@@ -321,7 +330,7 @@ function buildStockHolding(row: RawStockRow): HoldingUpdate {
       exchange: 'TSE',
       name: row.name,
       currency: 'JPY',
-      assetClass: 'stock',
+      assetClass,
       region: 'jp',
       quantity: row.quantity,
       marketPriceNative: priceNative,
@@ -332,7 +341,7 @@ function buildStockHolding(row: RawStockRow): HoldingUpdate {
     symbol: row.symbol,
     name: row.name,
     currency: 'USD',
-    assetClass: 'stock',
+    assetClass,
     region: 'us',
     quantity: row.quantity,
     marketPriceNative: priceNative,

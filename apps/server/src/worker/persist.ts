@@ -52,9 +52,18 @@ export async function persistAccountUpdate(
       where: { symbol: h.symbol, exchange: exchangeValue },
     });
     if (security) {
+      // 既存 Security の分類 (currency/assetClass/region/sector) も最新の adapter
+      // 判定で更新する。ETF 判定改善や region 推定改善が即反映される
       security = await prisma.security.update({
         where: { id: security.id },
-        data: { name: h.name, updatedAt: new Date() },
+        data: {
+          name: h.name,
+          currency: h.currency,
+          assetClass: h.assetClass,
+          region: h.region ?? null,
+          sector: h.sector ?? null,
+          updatedAt: new Date(),
+        },
       });
     } else {
       security = await prisma.security.create({

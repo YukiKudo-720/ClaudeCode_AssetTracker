@@ -132,10 +132,34 @@ function AssetClassSection({
   }
 
   if (assetClass === 'mutual_fund') {
+    // 投信も region でサブグループ化 (米国/全世界/日本/新興国 等)
+    const byRegion = new Map<Region | 'unknown', HoldingAgg[]>();
+    for (const h of items) {
+      const r = (h.region as Region | null) ?? 'unknown';
+      const arr = byRegion.get(r) ?? [];
+      arr.push(h);
+      byRegion.set(r, arr);
+    }
+    const regions: Array<Region | 'unknown'> = [
+      ...REGION_ORDER.filter((r) => byRegion.has(r)),
+      ...(byRegion.has('unknown') ? (['unknown'] as const) : []),
+    ];
     return (
       <section>
         <Header title={title} count={items.length} total={total} />
-        <MutualFundTable items={items} />
+        <div className="space-y-4">
+          {regions.map((r) => {
+            const subset = byRegion.get(r)!;
+            const subTotal = subset.reduce((s, h) => s + h.totalValueJpy, 0);
+            const label = r === 'unknown' ? '未分類' : REGION_LABELS[r as Region] ?? r;
+            return (
+              <div key={r}>
+                <SubHeader label={label} count={subset.length} total={subTotal} />
+                <MutualFundTable items={subset} />
+              </div>
+            );
+          })}
+        </div>
       </section>
     );
   }
