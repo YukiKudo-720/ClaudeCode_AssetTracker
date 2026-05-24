@@ -1,9 +1,7 @@
+// 注: env var (PLAYWRIGHT_BROWSERS_PATH 等) は entry script で env.ts を import 済みの前提
 import { mkdirSync } from 'node:fs';
 import { chromium } from 'playwright';
-import { MF_USER_DATA_DIR, MF_URLS, PLAYWRIGHT_BROWSERS_PATH } from './profile.js';
-
-// Playwright が browser を探す場所を強制 (プロジェクト cache を使う)
-process.env.PLAYWRIGHT_BROWSERS_PATH ??= PLAYWRIGHT_BROWSERS_PATH;
+import { MF_USER_DATA_DIR, MF_URLS } from './profile.js';
 
 // 初回ログイン専用のヘッドフル wizard。ユーザーが Passkey で手動ログインし、
 // セッションを userDataDir に保存。以後の cron はヘッドレスで同じ profile を使う。

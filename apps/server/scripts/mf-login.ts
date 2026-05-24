@@ -6,6 +6,8 @@
 // ブラウザが開くので Passkey でログインし、ログイン後にこのターミナルで Enter。
 // セッションは data/playwright-profiles/moneyforward/ に保存される。
 
+// env.ts を最初に import: PLAYWRIGHT_BROWSERS_PATH を設定 (playwright が読む前に)
+import '../src/env.js';
 import { runLoginWizard } from '../src/adapters/moneyforward/login-wizard.js';
 
 runLoginWizard()

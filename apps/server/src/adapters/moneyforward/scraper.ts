@@ -1,10 +1,9 @@
+// 注: env var (PLAYWRIGHT_BROWSERS_PATH 等) は entry script で env.ts を import 済みの前提
 import { existsSync } from 'node:fs';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { NeedsLoginError } from '../types.js';
-import { MF_USER_DATA_DIR, MF_URLS, PLAYWRIGHT_BROWSERS_PATH } from './profile.js';
+import { MF_USER_DATA_DIR, MF_URLS } from './profile.js';
 import type { AccountUpdate } from '../types.js';
-
-process.env.PLAYWRIGHT_BROWSERS_PATH ??= PLAYWRIGHT_BROWSERS_PATH;
 
 /** MF サイトをヘッドレスでスクレイピングし、口座 + 保有銘柄を抽出する */
 export async function scrapeMoneyForward(opts: {

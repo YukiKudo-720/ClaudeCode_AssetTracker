@@ -8,6 +8,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, '..', '..', '..');
 dotenv.config({ path: path.join(repoRoot, '.env') });
 
+// Playwright のブラウザ cache をプロジェクトローカルに固定。
+// playwright モジュールがロードされる前に env var を立てる必要があるので、
+// ここ (env.ts) で行う — env.ts は必ず entry point の最上流で import される前提。
+process.env.PLAYWRIGHT_BROWSERS_PATH ??= path.join(repoRoot, 'data', 'playwright-cache');
+
 const EnvSchema = z.object({
   DATABASE_URL: z.string().min(1),
   ASSET_TRACKER_TOKEN: z.string().min(16, 'token は 16 文字以上にしてください'),
