@@ -11,7 +11,8 @@
     "test": "vitest run",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio"
+    "prisma:studio": "prisma studio",
+    "mf:login": "tsx ../../scripts/mf-login.ts"
   },
   "dependencies": {
     "@asset-tracker/shared": "workspace:*",
