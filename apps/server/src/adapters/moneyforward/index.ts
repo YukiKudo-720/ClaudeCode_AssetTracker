@@ -5,7 +5,9 @@ export const moneyforwardAdapter: Adapter = {
   source: 'moneyforward',
   label: 'MoneyForward',
   async run(ctx) {
-    const headless = process.env.HEADFUL !== '1';
+    // MF はヘッドレス Chromium を 403 Forbidden で弾くため、デフォルトヘッドフル。
+    // HEADLESS=1 で opt-in (将来 stealth plugin 入れたら headless 動くかも)
+    const headless = process.env.HEADLESS === '1';
     ctx.logger.info({ source: 'moneyforward', headless }, 'starting MF scrape');
     const accountUpdates = await scrapeMoneyForward({
       headless,

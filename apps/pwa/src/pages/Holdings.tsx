@@ -10,7 +10,6 @@ import {
   type Region,
 } from '@asset-tracker/shared';
 
-// 表示する asset class と表示順
 const ASSET_CLASS_ORDER: AssetClass[] = [
   'cash',
   'stock',
@@ -23,8 +22,29 @@ const ASSET_CLASS_ORDER: AssetClass[] = [
   'other',
 ];
 
-// region 表示順 (主要なものから)
 const REGION_ORDER: Region[] = ['jp', 'us', 'hk', 'cn', 'eu', 'em', 'global', 'other'];
+
+const CURRENCY_SIGN: Record<string, string> = {
+  JPY: '¥',
+  USD: '$',
+  HKD: 'HK$',
+  EUR: '€',
+  CNY: 'CN¥',
+  CNH: 'CN¥',
+};
+
+function formatNative(amount: number, currency: string): string {
+  const sign = CURRENCY_SIGN[currency] ?? `${currency} `;
+  const decimals = currency === 'JPY' ? 0 : 2;
+  return `${sign}${amount.toLocaleString('ja-JP', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+}
+
+function formatJpy(v: number): string {
+  return `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
+}
 
 export function Holdings() {
   const { data, isLoading, isError } = useHoldings();
@@ -50,9 +70,11 @@ export function Holdings() {
   return (
     <div className="space-y-8">
       <div className="text-sm text-[var(--color-text-muted)] flex justify-between items-baseline">
-        <span>{data.holdings.length} 件 / 取得日 {data.capturedDate ?? '-'}</span>
+        <span>
+          {data.holdings.length} 件 / 取得日 {data.capturedDate ?? '-'}
+        </span>
         <span className="text-base text-[var(--color-text)] tabular-nums font-medium">
-          総額 ¥{grandTotal.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+          総額 {formatJpy(grandTotal)}
         </span>
       </div>
 
@@ -75,7 +97,6 @@ function AssetClassSection({
   const total = items.reduce((s, h) => s + h.totalValueJpy, 0);
   const title = ASSET_CLASS_LABELS[assetClass] ?? assetClass;
 
-  // 現金は region 分割不要、単一テーブル
   if (assetClass === 'cash') {
     return (
       <section>
@@ -85,7 +106,6 @@ function AssetClassSection({
     );
   }
 
-  // 投信は概ね日本籍なので region 分割せず単一テーブル
   if (assetClass === 'mutual_fund') {
     return (
       <section>
@@ -95,7 +115,7 @@ function AssetClassSection({
     );
   }
 
-  // stock / etf / reit / bond 等: region でサブグループ化
+  // stock / etf / reit / bond 等: region で sub-grouping
   const byRegion = new Map<Region | 'unknown', HoldingAgg[]>();
   for (const h of items) {
     const r = (h.region as Region | null) ?? 'unknown';
@@ -103,7 +123,6 @@ function AssetClassSection({
     arr.push(h);
     byRegion.set(r, arr);
   }
-
   const regions: Array<Region | 'unknown'> = [
     ...REGION_ORDER.filter((r) => byRegion.has(r)),
     ...(byRegion.has('unknown') ? (['unknown'] as const) : []),
@@ -133,11 +152,10 @@ function Header({ title, count, total }: { title: string; count: number; total: 
   return (
     <div className="flex items-baseline justify-between mb-3 border-b-2 border-[var(--color-primary)] pb-1">
       <h2 className="text-lg font-bold text-[var(--color-primary)]">
-        {title} <span className="text-sm font-normal text-[var(--color-text-muted)] ml-2">{count} 件</span>
+        {title}{' '}
+        <span className="text-sm font-normal text-[var(--color-text-muted)] ml-2">{count} 件</span>
       </h2>
-      <span className="text-base tabular-nums font-medium">
-        ¥{total.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
-      </span>
+      <span className="text-base tabular-nums font-medium">{formatJpy(total)}</span>
     </div>
   );
 }
@@ -146,44 +164,61 @@ function SubHeader({ label, count, total }: { label: string; count: number; tota
   return (
     <div className="flex items-baseline justify-between mb-2 px-1 text-sm">
       <span className="font-semibold text-[var(--color-text)]">
-        {label} <span className="text-[var(--color-text-muted)] ml-2 font-normal">{count} 件</span>
+        {label}{' '}
+        <span className="text-[var(--color-text-muted)] ml-2 font-normal">{count} 件</span>
       </span>
-      <span className="tabular-nums text-[var(--color-text-muted)]">
-        ¥{total.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
-      </span>
+      <span className="tabular-nums text-[var(--color-text-muted)]">{formatJpy(total)}</span>
     </div>
   );
 }
 
+// 現金テーブル: 1 行 = 1 (口座 × 通貨)
 function CashTable({ items }: { items: HoldingAgg[] }) {
+  // flatten (currency, account) で平坦化、JPY 換算降順
+  type Row = {
+    institution: string;
+    label: string;
+    currency: string;
+    valueJpy: number;
+    nativeAmount: number;
+    key: string;
+  };
+  const rows: Row[] = items.flatMap((h) =>
+    h.accounts.map((a) => ({
+      institution: a.institution,
+      label: a.label,
+      currency: h.currency,
+      valueJpy: a.valueJpy,
+      nativeAmount: a.quantity,
+      key: `${a.accountId}_${h.currency}`,
+    })),
+  );
+  rows.sort((a, b) => b.valueJpy - a.valueJpy);
+
   return (
     <div className="overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-sm">
         <thead className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
           <tr>
-            <th className="py-2 px-3 w-24">通貨</th>
+            <th className="py-2 px-3">口座</th>
             <th className="py-2 px-3 text-right w-44">残高 (JPY 換算)</th>
-            <th className="py-2 px-3">保有口座</th>
+            <th className="py-2 px-3 w-20">通貨</th>
+            <th className="py-2 px-3 text-right w-40">金額</th>
           </tr>
         </thead>
         <tbody>
-          {items.map((h) => (
-            <tr key={h.securityId} className="border-t border-[var(--color-border)]">
-              <td className="py-2 px-3 font-mono">{h.currency}</td>
-              <td className="py-2 px-3 text-right tabular-nums">
-                ¥{h.totalValueJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+          {rows.map((r) => (
+            <tr key={r.key} className="border-t border-[var(--color-border)]">
+              <td className="py-2 px-3">
+                <div>{INSTITUTION_LABELS[r.institution as Institution] ?? r.institution}</div>
+                {r.label !== INSTITUTION_LABELS[r.institution as Institution] && (
+                  <div className="text-xs text-[var(--color-text-muted)]">{r.label}</div>
+                )}
               </td>
-              <td className="py-2 px-3 text-xs space-y-0.5">
-                {h.accounts.map((a) => (
-                  <div key={a.accountId} className="flex items-center gap-3">
-                    <span className="min-w-36">
-                      {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}
-                    </span>
-                    <span className="tabular-nums text-[var(--color-text-muted)]">
-                      ¥{a.valueJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
-                    </span>
-                  </div>
-                ))}
+              <td className="py-2 px-3 text-right tabular-nums">{formatJpy(r.valueJpy)}</td>
+              <td className="py-2 px-3 font-mono">{r.currency}</td>
+              <td className="py-2 px-3 text-right tabular-nums">
+                {formatNative(r.nativeAmount, r.currency)}
               </td>
             </tr>
           ))}
@@ -222,7 +257,7 @@ function SecurityTable({ items }: { items: HoldingAgg[] }) {
                 {h.totalQuantity.toLocaleString('ja-JP', { maximumFractionDigits: 4 })}
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                ¥{h.totalValueJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+                {formatJpy(h.totalValueJpy)}
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
                 {h.unrealizedPnlJpy != null ? (
@@ -234,7 +269,9 @@ function SecurityTable({ items }: { items: HoldingAgg[] }) {
                     }
                   >
                     {h.unrealizedPnlJpy >= 0 ? '+' : '-'}¥
-                    {Math.abs(h.unrealizedPnlJpy).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+                    {Math.abs(h.unrealizedPnlJpy).toLocaleString('ja-JP', {
+                      maximumFractionDigits: 0,
+                    })}
                     {h.unrealizedPnlRatio != null && (
                       <div className="text-xs">
                         {h.unrealizedPnlJpy >= 0 ? '+' : ''}
@@ -288,7 +325,7 @@ function MutualFundTable({ items }: { items: HoldingAgg[] }) {
                 {h.totalQuantity.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                ¥{h.totalValueJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+                {formatJpy(h.totalValueJpy)}
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
                 {h.unrealizedPnlJpy != null ? (
@@ -300,7 +337,9 @@ function MutualFundTable({ items }: { items: HoldingAgg[] }) {
                     }
                   >
                     {h.unrealizedPnlJpy >= 0 ? '+' : '-'}¥
-                    {Math.abs(h.unrealizedPnlJpy).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+                    {Math.abs(h.unrealizedPnlJpy).toLocaleString('ja-JP', {
+                      maximumFractionDigits: 0,
+                    })}
                     {h.unrealizedPnlRatio != null && (
                       <div className="text-xs">
                         {h.unrealizedPnlJpy >= 0 ? '+' : ''}

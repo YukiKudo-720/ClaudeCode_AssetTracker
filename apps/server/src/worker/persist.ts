@@ -44,19 +44,31 @@ export async function persistAccountUpdate(
   const accountFx = await ctx.getFxToJpy(update.baseCurrency);
 
   for (const h of update.holdings) {
-    const security = await prisma.security.upsert({
-      where: { symbol_exchange: { symbol: h.symbol, exchange: h.exchange ?? '' } },
-      update: { name: h.name, updatedAt: new Date() },
-      create: {
-        symbol: h.symbol,
-        exchange: h.exchange ?? null,
-        name: h.name,
-        currency: h.currency,
-        assetClass: h.assetClass,
-        region: h.region ?? null,
-        sector: h.sector ?? null,
-      },
+    // Security の upsert: exchange が nullable な複合 unique のため
+    // Prisma の upsert は null をうまく扱えない (null !== '' で毎回新規作成される) →
+    // findFirst + create/update のフォールバックで対処
+    const exchangeValue = h.exchange ?? null;
+    let security = await prisma.security.findFirst({
+      where: { symbol: h.symbol, exchange: exchangeValue },
     });
+    if (security) {
+      security = await prisma.security.update({
+        where: { id: security.id },
+        data: { name: h.name, updatedAt: new Date() },
+      });
+    } else {
+      security = await prisma.security.create({
+        data: {
+          symbol: h.symbol,
+          exchange: exchangeValue,
+          name: h.name,
+          currency: h.currency,
+          assetClass: h.assetClass,
+          region: h.region ?? null,
+          sector: h.sector ?? null,
+        },
+      });
+    }
 
     // Holding は subAccount が nullable な複合 unique。Prisma の upsert が
     // null を含む where を扱いにくいので findFirst + create フォールバック
