@@ -5,8 +5,9 @@ export const moneyforwardAdapter: Adapter = {
   source: 'moneyforward',
   label: 'MoneyForward',
   async run(ctx) {
-    ctx.logger.info({ source: 'moneyforward' }, 'starting MF scrape');
-    const accountUpdates = await scrapeMoneyForward({ headless: true });
+    const headless = process.env.HEADFUL !== '1';
+    ctx.logger.info({ source: 'moneyforward', headless }, 'starting MF scrape');
+    const accountUpdates = await scrapeMoneyForward({ headless });
     ctx.logger.info({ source: 'moneyforward', count: accountUpdates.length }, 'MF scrape complete');
     return { accountUpdates };
   },

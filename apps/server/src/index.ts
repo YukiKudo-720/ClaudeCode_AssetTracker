@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import cors from '@fastify/cors';
 import { env } from './env.js';
 import { logger } from './logger.js';
 import { bearerAuth } from './auth.js';
@@ -7,6 +8,16 @@ import { registerRunRoutes } from './routes/run.js';
 
 async function main(): Promise<void> {
   const app = Fastify({ loggerInstance: logger });
+
+  // CORS: PWA (別オリジン) からの fetch を許可
+  // v1 は reflect-origin (リクエストの Origin をそのまま返す)、
+  // production は Tailscale 経由の同一オリジン配信予定なのでこれで十分
+  await app.register(cors, {
+    origin: true,
+    credentials: false,
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    methods: ['GET', 'POST', 'OPTIONS'],
+  });
 
   // 認証不要 (生存確認のみ)
   app.get('/api/health', async () => ({ status: 'ok', uptime: process.uptime() }));

@@ -15,7 +15,8 @@
     "db:seed": "tsx scripts/seed.ts",
     "mf:login": "tsx scripts/mf-login.ts",
     "mf:inspect": "tsx scripts/mf-inspect.ts",
-    "mf:scrape-dry": "tsx scripts/mf-scrape-dry.ts"
+    "mf:scrape-dry": "tsx scripts/mf-scrape-dry.ts",
+    "mf:run": "tsx scripts/mf-run.ts"
   },
   "dependencies": {
     "@asset-tracker/shared": "workspace:*",
