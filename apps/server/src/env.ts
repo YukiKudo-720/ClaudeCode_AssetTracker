@@ -20,6 +20,10 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().positive().default(3000),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+
+  // Webull JP OpenAPI (optional; 両方セットされてれば adapter 有効化)
+  WEBULL_APP_KEY: z.string().optional(),
+  WEBULL_APP_SECRET: z.string().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

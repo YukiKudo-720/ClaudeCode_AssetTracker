@@ -4,3 +4,9 @@
 #          .venv/bin/pip install -r requirements.txt (Unix)
 
 futu-api>=9.0.0
+
+# Webull JP OpenAPI: 公式 Python SDK (webull-python-sdk-*) は grpcio==1.51.1
+# を pin しており Python 3.14 で wheel 不在・source build もエラー
+# (setuptools 82 から pkg_resources 削除のため)。
+# よって Webull adapter は Node 直接実装 (HMAC-SHA1 + REST、gRPC 不要) とする。
+# Python は Moomoo 用のみ。
