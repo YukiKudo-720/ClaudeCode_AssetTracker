@@ -5,17 +5,24 @@ import type { Logger } from 'pino';
 const RATE_TTL_HOURS = 6;
 
 interface RateProviderResponse {
+  amount: number;
+  base: string;
+  date: string;
   rates: Record<string, number>;
 }
 
+// frankfurter.app は ECB ベースの無料 FX API (API キー不要、商用 OK)
+// 旧 exchangerate.host は 2024 頃 access_key 必須に変更されたため移行
 async function fetchRateFromApi(base: string, quote: string): Promise<number> {
   if (base === quote) return 1;
-  const url = `https://api.exchangerate.host/latest?base=${base}&symbols=${quote}`;
+  const url = `https://api.frankfurter.app/latest?from=${base}&to=${quote}`;
   const res = await fetch(url);
   if (!res.ok) throw new Error(`fx fetch failed: ${res.status}`);
   const json = (await res.json()) as RateProviderResponse;
-  const rate = json.rates[quote];
-  if (typeof rate !== 'number') throw new Error(`fx rate missing: ${base}->${quote}`);
+  const rate = json.rates?.[quote];
+  if (typeof rate !== 'number') {
+    throw new Error(`fx rate missing in response: ${base}->${quote} body=${JSON.stringify(json)}`);
+  }
   return rate;
 }
 

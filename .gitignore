@@ -2,6 +2,11 @@
 node_modules/
 .pnpm-store/
 
+# Python venv (CLAUDE.md: Python は .venv/ 内のみ)
+.venv/
+__pycache__/
+*.pyc
+
 # Build outputs
 dist/
 build/

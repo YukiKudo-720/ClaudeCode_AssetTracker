@@ -1,0 +1,6 @@
+# Asset Tracker - Python dependencies
+# 用途: Moomoo (Futu) OpenAPI を呼ぶサブプロセス用
+# install: .venv/Scripts/pip install -r requirements.txt (Windows)
+#          .venv/bin/pip install -r requirements.txt (Unix)
+
+futu-api>=9.0.0
