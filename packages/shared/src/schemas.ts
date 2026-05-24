@@ -176,3 +176,45 @@ export const HistoryTotalResponseSchema = z.object({
   ),
 });
 export type HistoryTotalResponse = z.infer<typeof HistoryTotalResponseSchema>;
+
+// /api/categories
+export const CategorySecurityEntrySchema = z.object({
+  securityId: z.string(),
+  symbol: z.string(),
+  name: z.string(),
+  assetClass: z.string(),
+  weight: z.number(),
+  totalValueJpy: z.number(),
+  weightedValueJpy: z.number(),
+});
+export type CategorySecurityEntry = z.infer<typeof CategorySecurityEntrySchema>;
+
+export const CategoryAggSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  name: z.string(),
+  sortOrder: z.number(),
+  securityCount: z.number(),
+  valueJpy: z.number(),
+  ratio: z.number(),
+  securities: z.array(CategorySecurityEntrySchema),
+});
+export type CategoryAgg = z.infer<typeof CategoryAggSchema>;
+
+export const UntaggedSecuritySchema = z.object({
+  securityId: z.string(),
+  symbol: z.string(),
+  name: z.string(),
+  assetClass: z.string(),
+  valueJpy: z.number(),
+});
+export type UntaggedSecurity = z.infer<typeof UntaggedSecuritySchema>;
+
+export const CategoriesResponseSchema = z.object({
+  capturedDate: z.string().nullable(),
+  totalJpy: z.number(),
+  untaggedJpy: z.number(),
+  categories: z.array(CategoryAggSchema),
+  untagged: z.array(UntaggedSecuritySchema),
+});
+export type CategoriesResponse = z.infer<typeof CategoriesResponseSchema>;

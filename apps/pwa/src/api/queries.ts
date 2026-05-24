@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import type {
   AccountSummary,
   AllocationResponse,
+  CategoriesResponse,
   HistoryTotalResponse,
   HoldingsResponse,
   ScrapeRunSummary,
@@ -40,6 +41,13 @@ export function useHistoryTotal(days: number = 90) {
   return useQuery({
     queryKey: ['history-total', days],
     queryFn: () => apiFetch<HistoryTotalResponse>(`/api/history/total?days=${days}`),
+  });
+}
+
+export function useCategories() {
+  return useQuery({
+    queryKey: ['categories'],
+    queryFn: () => apiFetch<CategoriesResponse>('/api/categories'),
   });
 }
 

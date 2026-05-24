@@ -8,6 +8,7 @@ import { registerRunRoutes } from './routes/run.js';
 import { registerHoldingsRoutes } from './routes/holdings.js';
 import { registerAllocationRoutes } from './routes/allocation.js';
 import { registerHistoryRoutes } from './routes/history.js';
+import { registerCategoriesRoutes } from './routes/categories.js';
 
 async function main(): Promise<void> {
   const app = Fastify({ loggerInstance: logger });
@@ -33,6 +34,7 @@ async function main(): Promise<void> {
     registerHoldingsRoutes(instance);
     registerAllocationRoutes(instance);
     registerHistoryRoutes(instance);
+    registerCategoriesRoutes(instance);
   });
 
   try {

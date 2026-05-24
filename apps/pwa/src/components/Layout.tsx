@@ -1,11 +1,12 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Wallet, TrendingUp, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Wallet, TrendingUp, Tags, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react';
 import { SyncIndicator } from './SyncIndicator.js';
 
 const NAV = [
   { to: '/', label: 'ダッシュボード', icon: LayoutDashboard, end: true },
   { to: '/accounts', label: '口座', icon: Wallet },
   { to: '/holdings', label: '銘柄', icon: TrendingUp },
+  { to: '/categories', label: 'テーマ', icon: Tags },
   { to: '/history', label: '履歴', icon: HistoryIcon },
   { to: '/settings', label: '設定', icon: SettingsIcon },
 ];

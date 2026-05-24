@@ -3,6 +3,7 @@ import { Layout } from './components/Layout.js';
 import { Dashboard } from './pages/Dashboard.js';
 import { Accounts } from './pages/Accounts.js';
 import { Holdings } from './pages/Holdings.js';
+import { Categories } from './pages/Categories.js';
 import { History } from './pages/History.js';
 import { Settings } from './pages/Settings.js';
 
@@ -13,6 +14,7 @@ export function App() {
         <Route index element={<Dashboard />} />
         <Route path="accounts" element={<Accounts />} />
         <Route path="holdings" element={<Holdings />} />
+        <Route path="categories" element={<Categories />} />
         <Route path="history" element={<History />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />
