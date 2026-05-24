@@ -91,9 +91,19 @@ export async function persistAccountUpdate(
   }
 
   // 3. AccountSnapshot を upsert ((accountId, capturedDate) で同日上書き)
+  //    cash は holdings 側に統一されたので、cashJpy は assetClass='cash' の holdings 合計から計算
+  let cashJpy = 0;
+  for (let i = 0; i < update.holdings.length; i++) {
+    if (update.holdings[i]!.assetClass === 'cash') {
+      cashJpy += resolved[i]!.marketValueJpy;
+    }
+  }
+  // update.cashNative は廃止予定 (adapter は 0 を送る) だが、後方互換のため
+  // 0 でない場合は holdings に未統合な cash として加算
   const totalValueNative = update.cashNative + holdingsValueInAccountCurrency;
   const totalValueJpy = totalValueNative * accountFx;
-  const cashJpy = update.cashNative * accountFx;
+  cashJpy += update.cashNative * accountFx;
+  const cashNative = accountFx > 0 ? cashJpy / accountFx : cashJpy;
 
   const snapshot = await prisma.accountSnapshot.upsert({
     where: { accountId_capturedDate: { accountId: account.id, capturedDate } },
@@ -101,7 +111,7 @@ export async function persistAccountUpdate(
       capturedAt: update.capturedAt,
       totalValueNative,
       totalValueJpy,
-      cashNative: update.cashNative,
+      cashNative,
       cashJpy,
       fxRate: accountFx,
     },
@@ -111,7 +121,7 @@ export async function persistAccountUpdate(
       capturedDate,
       totalValueNative,
       totalValueJpy,
-      cashNative: update.cashNative,
+      cashNative,
       cashJpy,
       fxRate: accountFx,
     },

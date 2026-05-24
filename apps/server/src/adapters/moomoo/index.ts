@@ -16,6 +16,18 @@ import type { Adapter, AccountUpdate, HoldingUpdate, AdapterContext } from '../t
 import { NeedsLoginError } from '../types.js';
 import type { AssetClass, Region } from '@asset-tracker/shared';
 
+function regionFromCurrency(currency: string): Region {
+  switch (currency) {
+    case 'JPY': return 'jp';
+    case 'USD': return 'us';
+    case 'HKD': return 'hk';
+    case 'CNY':
+    case 'CNH': return 'cn';
+    case 'EUR': return 'eu';
+    default: return 'other';
+  }
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..', '..');
 
@@ -128,14 +140,29 @@ export const moomooAdapter: Adapter = {
     }
 
     const capturedAt = new Date();
-    const updates: AccountUpdate[] = py.accounts.map((acc) => ({
-      institution: 'moomoo' as const,
-      label: acc.label,
-      capturedAt,
-      baseCurrency: acc.baseCurrency,
-      cashNative: acc.cashNative,
-      holdings: acc.positions.map(toHoldingUpdate),
-    }));
+    const updates: AccountUpdate[] = py.accounts.map((acc) => {
+      const holdings: HoldingUpdate[] = acc.positions.map(toHoldingUpdate);
+      // 現金を holdings に追加 (assetClass='cash')
+      if (acc.cashNative > 0) {
+        holdings.push({
+          symbol: `${acc.baseCurrency}_CASH`,
+          name: `${acc.baseCurrency} 現金`,
+          currency: acc.baseCurrency,
+          assetClass: 'cash',
+          region: regionFromCurrency(acc.baseCurrency),
+          quantity: acc.cashNative,
+          marketPriceNative: 1,
+        });
+      }
+      return {
+        institution: 'moomoo' as const,
+        label: acc.label,
+        capturedAt,
+        baseCurrency: acc.baseCurrency,
+        cashNative: 0, // cash は holdings に統一
+        holdings,
+      };
+    });
 
     ctx.logger.info(
       { source: 'moomoo_api', accountCount: updates.length },

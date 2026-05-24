@@ -7,7 +7,10 @@ export const moneyforwardAdapter: Adapter = {
   async run(ctx) {
     const headless = process.env.HEADFUL !== '1';
     ctx.logger.info({ source: 'moneyforward', headless }, 'starting MF scrape');
-    const accountUpdates = await scrapeMoneyForward({ headless });
+    const accountUpdates = await scrapeMoneyForward({
+      headless,
+      getFxToJpy: ctx.getFxToJpy, // cash native 換算に必要
+    });
     ctx.logger.info({ source: 'moneyforward', count: accountUpdates.length }, 'MF scrape complete');
     return { accountUpdates };
   },

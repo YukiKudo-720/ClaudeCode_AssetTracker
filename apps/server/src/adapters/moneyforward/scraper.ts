@@ -3,7 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { chromium, type BrowserContext, type Page } from 'playwright';
-import type { Institution } from '@asset-tracker/shared';
+import type { Institution, Region } from '@asset-tracker/shared';
 import { NeedsLoginError } from '../types.js';
 import { MF_USER_DATA_DIR, MF_URLS } from './profile.js';
 import type { AccountUpdate, HoldingUpdate } from '../types.js';
@@ -44,6 +44,39 @@ const BANK_INSTITUTIONS = new Set<Institution>(['rakuten_bank', 'mufg', 'sbi_sum
 
 function parseAmount(text: string): number {
   return Number(text.replace(/[円¥,\s ]/g, '')) || 0;
+}
+
+// MF の "種類・名称" 欄から通貨を検出
+function detectCashCurrency(label: string): string {
+  if (/米ドル|\bUSD\b|（USD）|\(USD\)/.test(label)) return 'USD';
+  if (/香港ドル|\bHKD\b|（HKD）|\(HKD\)/.test(label)) return 'HKD';
+  if (/ユーロ|\bEUR\b|（EUR）|\(EUR\)/.test(label)) return 'EUR';
+  if (/人民元|\bCNY\b|\bCNH\b/.test(label)) return 'CNY';
+  return 'JPY';
+}
+
+function regionFromCurrency(currency: string): Region {
+  switch (currency) {
+    case 'JPY': return 'jp';
+    case 'USD': return 'us';
+    case 'HKD': return 'hk';
+    case 'CNY':
+    case 'CNH': return 'cn';
+    case 'EUR': return 'eu';
+    default: return 'other';
+  }
+}
+
+function buildCashHolding(currency: string, nativeAmount: number): HoldingUpdate {
+  return {
+    symbol: `${currency}_CASH`,
+    name: `${currency} 現金`,
+    currency,
+    assetClass: 'cash',
+    region: regionFromCurrency(currency),
+    quantity: nativeAmount,
+    marketPriceNative: 1,
+  };
 }
 
 interface AccountRow {
@@ -286,7 +319,10 @@ function buildStockHolding(row: RawStockRow): HoldingUpdate {
 
 function buildMutualFundHolding(row: RawMfRow): HoldingUpdate {
   // 投信は銘柄コード無いので name を symbol に流用 (Security の unique キー)
+  // MF の表示: 保有数=口数 / 平均取得単価・基準価額=per 10,000 口 表示
+  // → marketPrice は value/qty で「per 1口」、avgCost も同じ単位に正規化 (/10000)
   const marketPrice = row.quantity > 0 ? row.marketValue / row.quantity : 0;
+  const avgCostPerUnit = row.avgCost / 10_000;
   return {
     symbol: row.name,
     name: row.name,
@@ -295,14 +331,19 @@ function buildMutualFundHolding(row: RawMfRow): HoldingUpdate {
     region: 'jp',
     quantity: row.quantity,
     marketPriceNative: marketPrice,
-    ...(row.avgCost > 0 ? { avgCostNative: row.avgCost } : {}),
+    ...(avgCostPerUnit > 0 ? { avgCostNative: avgCostPerUnit } : {}),
   };
 }
 
-/** MF サイトをヘッドレスでスクレイピングし、5 対象機関の口座 + 保有銘柄を返す */
+/** MF サイトをヘッドレスでスクレイピングし、5 対象機関の口座 + 保有銘柄を返す。
+ *  cash は通貨別に独立した Holding (`USD_CASH` 等、assetClass='cash') として emit。
+ *  getFxToJpy が無い場合は全て fx=1 で扱う (mf:scrape-dry の試験用)。
+ */
 export async function scrapeMoneyForward(opts: {
   headless?: boolean;
+  getFxToJpy?: (currency: string) => Promise<number>;
 } = {}): Promise<AccountUpdate[]> {
+  const getFx = opts.getFxToJpy ?? ((_cur: string) => Promise.resolve(1));
   if (!existsSync(MF_USER_DATA_DIR)) {
     throw new NeedsLoginError(
       'moneyforward',
@@ -330,19 +371,34 @@ export async function scrapeMoneyForward(opts: {
       if (!institution) continue; // 対象 5 機関以外は無視
 
       if (BANK_INSTITUTIONS.has(institution)) {
-        // 銀行: 残高のみ
+        // 銀行: 残高を JPY_CASH ホールディングとして emit (3 機関とも JPY 口座)
         updates.push({
           institution,
           label: row.name,
           capturedAt,
           baseCurrency: 'JPY',
-          cashNative: row.balanceJpy,
-          holdings: [],
+          cashNative: 0, // cash は holdings 側で持つ
+          holdings: [buildCashHolding('JPY', row.balanceJpy)],
         });
       } else {
-        // 証券: 詳細ページから cash + holdings
+        // 証券: 詳細ページから cash (通貨別) + holdings
         const detail = await scrapeBrokerageDetail(page, row.id, institution);
+
+        // cash を通貨別に集約してから native 量に変換
+        const cashByCurrency = new Map<string, number>();
+        for (const c of detail.cashBreakdown) {
+          const cur = detectCashCurrency(c.label);
+          cashByCurrency.set(cur, (cashByCurrency.get(cur) ?? 0) + c.amountJpy);
+        }
+        const cashHoldings: HoldingUpdate[] = [];
+        for (const [cur, jpyValue] of cashByCurrency) {
+          const fx = cur === 'JPY' ? 1 : await getFx(cur);
+          const native = fx > 0 ? jpyValue / fx : jpyValue;
+          cashHoldings.push(buildCashHolding(cur, native));
+        }
+
         const holdings = mergeDuplicateHoldings([
+          ...cashHoldings,
           ...detail.stocks.map(buildStockHolding),
           ...detail.mutualFunds.map(buildMutualFundHolding),
         ]);
@@ -351,7 +407,7 @@ export async function scrapeMoneyForward(opts: {
           label: row.name,
           capturedAt,
           baseCurrency: 'JPY',
-          cashNative: detail.cashJpy,
+          cashNative: 0, // cash は holdings 側
           holdings,
         });
       }

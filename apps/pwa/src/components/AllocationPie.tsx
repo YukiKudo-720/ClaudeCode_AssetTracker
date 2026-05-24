@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAllocation } from '../api/queries.js';
 import { pickColor } from '../lib/colors.js';
 import {
@@ -28,6 +28,7 @@ function labelize(by: By, key: string): string {
 export function AllocationPie({ by, title }: Props) {
   const { data, isLoading, isError } = useAllocation(by);
 
+  // backend が valueJpy 降順でソート済み。先頭が一番大きい slice。
   const chartData = useMemo(() => {
     if (!data) return [];
     return data.buckets.map((b) => ({
@@ -39,13 +40,13 @@ export function AllocationPie({ by, title }: Props) {
 
   if (isLoading)
     return (
-      <div className="bg-[var(--color-bg-elevated)] rounded-lg p-6 border border-[var(--color-border)] text-[var(--color-text-muted)] text-sm">
+      <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)] text-[var(--color-text-muted)] text-sm">
         {title} 読み込み中...
       </div>
     );
   if (isError || !data)
     return (
-      <div className="bg-[var(--color-bg-elevated)] rounded-lg p-6 border border-[var(--color-border)] text-[var(--color-negative)] text-sm">
+      <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)] text-[var(--color-negative)] text-sm">
         {title}: API エラー
       </div>
     );
@@ -53,8 +54,14 @@ export function AllocationPie({ by, title }: Props) {
 
   return (
     <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)]">
-      <h3 className="text-sm font-semibold text-[var(--color-text-muted)] mb-2">{title}</h3>
-      <div className="h-64">
+      <div className="flex items-baseline justify-between mb-2">
+        <h3 className="text-sm font-semibold text-[var(--color-text-muted)]">{title}</h3>
+        <span className="text-sm tabular-nums font-medium">
+          ¥{data.totalJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+        </span>
+      </div>
+
+      <div className="h-56">
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -63,9 +70,12 @@ export function AllocationPie({ by, title }: Props) {
               nameKey="name"
               cx="50%"
               cy="50%"
-              outerRadius={80}
-              innerRadius={45}
+              outerRadius={75}
+              innerRadius={40}
+              startAngle={90}
+              endAngle={-270}
               paddingAngle={1}
+              isAnimationActive={false}
             >
               {chartData.map((_, i) => (
                 <Cell key={i} fill={pickColor(i)} />
@@ -74,18 +84,33 @@ export function AllocationPie({ by, title }: Props) {
             <Tooltip
               formatter={(v: number, _n, p) => {
                 const ratio = (p.payload as { ratio: number }).ratio;
-                return [`¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })} (${(ratio * 100).toFixed(1)}%)`, ''];
+                return [
+                  `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })} (${(ratio * 100).toFixed(1)}%)`,
+                  '',
+                ];
               }}
-            />
-            <Legend
-              verticalAlign="bottom"
-              align="center"
-              iconSize={10}
-              wrapperStyle={{ fontSize: '12px' }}
             />
           </PieChart>
         </ResponsiveContainer>
       </div>
+
+      <ul className="mt-2 text-xs space-y-1">
+        {chartData.map((d, i) => (
+          <li key={d.name} className="flex items-center gap-2">
+            <span
+              className="w-3 h-3 rounded-sm flex-shrink-0"
+              style={{ background: pickColor(i) }}
+            />
+            <span className="flex-1 truncate">{d.name}</span>
+            <span className="tabular-nums">
+              ¥{d.value.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+            </span>
+            <span className="tabular-nums text-[var(--color-text-muted)] w-14 text-right">
+              {(d.ratio * 100).toFixed(1)}%
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
