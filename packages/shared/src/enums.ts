@@ -65,7 +65,7 @@ export const INSTITUTION_LABELS: Record<Institution, string> = {
   rakuten_sec: '楽天証券',
   sbi_sec: 'SBI証券',
   webull: 'Webull',
-  moomoo: 'Moomoo',
+  moomoo: 'moomoo証券',
 };
 
 export const INSTITUTION_KIND: Record<Institution, AccountKind> = {
