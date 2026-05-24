@@ -73,6 +73,8 @@ function runPython(): Promise<PyOutput> {
     const child = spawn(py, [script], {
       cwd: REPO_ROOT,
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Windows で日本語文字列の文字化けを防ぐ
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8' },
     });
 
     let stdout = '';

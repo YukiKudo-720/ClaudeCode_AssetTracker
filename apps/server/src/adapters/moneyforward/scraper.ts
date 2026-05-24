@@ -333,21 +333,61 @@ function buildStockHolding(row: RawStockRow, usdFx: number): HoldingUpdate {
   };
 }
 
-function buildMutualFundHolding(row: RawMfRow): HoldingUpdate {
+// 投信の銘柄名から原資産の region + currency を推定 (通貨配分の集計用)
+// e.g., "eMAXIS Slim 米国株式(S&P500)" → us/USD
+//       "eMAXIS Slim 全世界株式(オール・カントリー)" → global/USD (米国比重大)
+//       "ニッセイ TOPIX インデックス" → jp/JPY
+function detectMutualFundCategory(name: string): { region: Region; currency: string } {
+  const n = name;
+  if (/米国|米株|S&P|S&P|ナスダック|NASDAQ|ダウ|Russell|ラッセル/i.test(n))
+    return { region: 'us', currency: 'USD' };
+  if (/全世界|オルカン|オール・?カントリー|World|MSCI ACWI/i.test(n))
+    return { region: 'global', currency: 'USD' };
+  if (/新興国|エマージング|emerging/i.test(n))
+    return { region: 'em', currency: 'USD' };
+  if (/先進国|MSCI Kokusai|コクサイ/i.test(n))
+    return { region: 'global', currency: 'USD' };
+  if (/中国|チャイナ|China/i.test(n))
+    return { region: 'cn', currency: 'USD' };
+  if (/欧州|ユーロ|ヨーロッパ|Europe/i.test(n))
+    return { region: 'eu', currency: 'EUR' };
+  if (/インド|India|ブラジル|Brazil/i.test(n))
+    return { region: 'em', currency: 'USD' };
+  if (/香港|HongKong|H株/i.test(n))
+    return { region: 'hk', currency: 'HKD' };
+  if (/日本|TOPIX|日経|J-REIT|JREIT|JPX/.test(n))
+    return { region: 'jp', currency: 'JPY' };
+  return { region: 'jp', currency: 'JPY' }; // デフォルト
+}
+
+function buildMutualFundHolding(row: RawMfRow, fxMap: Map<string, number>): HoldingUpdate {
   // 投信は銘柄コード無いので name を symbol に流用 (Security の unique キー)
   // MF の表示: 保有数=口数 / 平均取得単価・基準価額=per 10,000 口 表示
   // → marketPrice は value/qty で「per 1口」、avgCost も同じ単位に正規化 (/10000)
-  const marketPrice = row.quantity > 0 ? row.marketValue / row.quantity : 0;
-  const avgCostPerUnit = row.avgCost / 10_000;
+  const { region, currency } = detectMutualFundCategory(row.name);
+  const fx = currency === 'JPY' ? 1 : fxMap.get(currency) ?? 1;
+
+  const priceJpyPerUnit = row.quantity > 0 ? row.marketValue / row.quantity : 0;
+  const avgCostJpyPerUnit = row.avgCost / 10_000;
+
+  // 非JPYファンドは MF の JPY 表示を fx で native に逆算
+  const priceNative = currency === 'JPY' ? priceJpyPerUnit : priceJpyPerUnit / fx;
+  const avgCostNative =
+    avgCostJpyPerUnit > 0
+      ? currency === 'JPY'
+        ? avgCostJpyPerUnit
+        : avgCostJpyPerUnit / fx
+      : 0;
+
   return {
     symbol: row.name,
     name: row.name,
-    currency: 'JPY',
+    currency,
     assetClass: 'mutual_fund',
-    region: 'jp',
+    region,
     quantity: row.quantity,
-    marketPriceNative: marketPrice,
-    ...(avgCostPerUnit > 0 ? { avgCostNative: avgCostPerUnit } : {}),
+    marketPriceNative: priceNative,
+    ...(avgCostNative > 0 ? { avgCostNative } : {}),
   };
 }
 
@@ -413,12 +453,17 @@ export async function scrapeMoneyForward(opts: {
           cashHoldings.push(buildCashHolding(cur, native));
         }
 
-        // US株のJPY→USD逆算用に fx を 1 回取得
-        const usdFx = await getFx('USD');
+        // fx を一括取得 (US株・US/EU/HK系投信の native 逆算用)
+        const fxMap = new Map<string, number>();
+        for (const cur of ['USD', 'EUR', 'HKD']) {
+          fxMap.set(cur, await getFx(cur));
+        }
+        const usdFx = fxMap.get('USD') ?? 1;
+
         const holdings = mergeDuplicateHoldings([
           ...cashHoldings,
           ...detail.stocks.map((s) => buildStockHolding(s, usdFx)),
-          ...detail.mutualFunds.map(buildMutualFundHolding),
+          ...detail.mutualFunds.map((m) => buildMutualFundHolding(m, fxMap)),
         ]);
         updates.push({
           institution,

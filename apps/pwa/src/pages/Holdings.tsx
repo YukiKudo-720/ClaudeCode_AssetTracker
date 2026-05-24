@@ -33,6 +33,15 @@ const CURRENCY_SIGN: Record<string, string> = {
   CNH: 'CN¥',
 };
 
+const CURRENCY_LABELS: Record<string, string> = {
+  JPY: '日本円',
+  USD: '米ドル',
+  HKD: '香港ドル',
+  EUR: 'ユーロ',
+  CNY: '人民元',
+  CNH: '人民元',
+};
+
 function formatNative(amount: number, currency: string): string {
   const sign = CURRENCY_SIGN[currency] ?? `${currency} `;
   const decimals = currency === 'JPY' ? 0 : 2;
@@ -98,10 +107,26 @@ function AssetClassSection({
   const title = ASSET_CLASS_LABELS[assetClass] ?? assetClass;
 
   if (assetClass === 'cash') {
+    // 通貨ごとにサブグループ (1 item = 1 通貨。JPY換算降順)
+    const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
     return (
       <section>
         <Header title={title} count={items.length} total={total} />
-        <CashTable items={items} />
+        <div className="space-y-4">
+          {sorted.map((item) => {
+            const label = CURRENCY_LABELS[item.currency] ?? item.currency;
+            return (
+              <div key={item.currency}>
+                <SubHeader
+                  label={label}
+                  count={item.accounts.length}
+                  total={item.totalValueJpy}
+                />
+                <CurrencyCashTable item={item} />
+              </div>
+            );
+          })}
+        </div>
       </section>
     );
   }
@@ -172,29 +197,9 @@ function SubHeader({ label, count, total }: { label: string; count: number; tota
   );
 }
 
-// 現金テーブル: 1 行 = 1 (口座 × 通貨)
-function CashTable({ items }: { items: HoldingAgg[] }) {
-  // flatten (currency, account) で平坦化、JPY 換算降順
-  type Row = {
-    institution: string;
-    label: string;
-    currency: string;
-    valueJpy: number;
-    nativeAmount: number;
-    key: string;
-  };
-  const rows: Row[] = items.flatMap((h) =>
-    h.accounts.map((a) => ({
-      institution: a.institution,
-      label: a.label,
-      currency: h.currency,
-      valueJpy: a.valueJpy,
-      nativeAmount: a.quantity,
-      key: `${a.accountId}_${h.currency}`,
-    })),
-  );
-  rows.sort((a, b) => b.valueJpy - a.valueJpy);
-
+// 単一通貨の現金テーブル (1 行 = 1 口座)
+function CurrencyCashTable({ item }: { item: HoldingAgg }) {
+  const accounts = [...item.accounts].sort((a, b) => b.valueJpy - a.valueJpy);
   return (
     <div className="overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-sm">
@@ -202,26 +207,27 @@ function CashTable({ items }: { items: HoldingAgg[] }) {
           <tr>
             <th className="py-2 px-3">口座</th>
             <th className="py-2 px-3 text-right w-44">残高 (JPY 換算)</th>
-            <th className="py-2 px-3 w-20">通貨</th>
             <th className="py-2 px-3 text-right w-40">金額</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
-            <tr key={r.key} className="border-t border-[var(--color-border)]">
-              <td className="py-2 px-3">
-                <div>{INSTITUTION_LABELS[r.institution as Institution] ?? r.institution}</div>
-                {r.label !== INSTITUTION_LABELS[r.institution as Institution] && (
-                  <div className="text-xs text-[var(--color-text-muted)]">{r.label}</div>
-                )}
-              </td>
-              <td className="py-2 px-3 text-right tabular-nums">{formatJpy(r.valueJpy)}</td>
-              <td className="py-2 px-3 font-mono">{r.currency}</td>
-              <td className="py-2 px-3 text-right tabular-nums">
-                {formatNative(r.nativeAmount, r.currency)}
-              </td>
-            </tr>
-          ))}
+          {accounts.map((a) => {
+            const instLabel = INSTITUTION_LABELS[a.institution as Institution] ?? a.institution;
+            return (
+              <tr key={a.accountId} className="border-t border-[var(--color-border)]">
+                <td className="py-2 px-3">
+                  <div>{instLabel}</div>
+                  {a.label && a.label !== instLabel && (
+                    <div className="text-xs text-[var(--color-text-muted)]">{a.label}</div>
+                  )}
+                </td>
+                <td className="py-2 px-3 text-right tabular-nums">{formatJpy(a.valueJpy)}</td>
+                <td className="py-2 px-3 text-right tabular-nums">
+                  {formatNative(a.quantity, item.currency)}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -25,6 +25,12 @@ import json
 import sys
 import traceback
 
+# Windows のデフォルト stdout エンコーディングは cp932 で日本語が文字化けするため UTF-8 を強制
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
 try:
     from futu import (  # type: ignore[import-untyped]
         OpenSecTradeContext, TrdMarket, TrdEnv, SecurityFirm, Currency, RET_OK,
