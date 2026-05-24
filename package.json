@@ -1,0 +1,20 @@
+{
+  "name": "asset-tracker",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal asset tracker (banks + brokerages) — PC backend + PWA viewer via Tailscale",
+  "packageManager": "pnpm@9.15.4",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "postinstall": "node scripts/install-prisma-shim.mjs",
+    "build": "pnpm -r build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "dev:server": "pnpm --filter @asset-tracker/server dev",
+    "dev:pwa": "pnpm --filter @asset-tracker/pwa dev",
+    "prisma:generate": "pnpm --filter @asset-tracker/server run prisma:generate"
+  }
+}

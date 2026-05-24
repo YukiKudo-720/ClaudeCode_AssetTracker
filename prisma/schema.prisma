@@ -1,0 +1,142 @@
+// Asset Tracker DB schema
+// 詳細は .claude/docs/plan.md §6 参照
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// 口座 (銀行口座 or 証券口座)
+model Account {
+  id            String   @id @default(cuid())
+  kind          String   // 'bank' | 'brokerage'
+  institution   String   // 'rakuten_bank' | 'mufg' | 'sbi_sumishin' | 'rakuten_sec' | 'sbi_sec' | 'webull' | 'moomoo'
+  source        String   // 'moneyforward' | 'direct_scrape' | 'webull_api' | 'moomoo_api' | 'manual'
+  label         String
+  baseCurrency  String
+  credentialRef String?
+  tags          String   @default("[]")
+  meta          String   @default("{}")
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  snapshots AccountSnapshot[]
+  holdings  Holding[]
+}
+
+// 口座単位の時系列スナップショット
+model AccountSnapshot {
+  id               String   @id @default(cuid())
+  accountId        String
+  capturedAt       DateTime
+  totalValueNative Decimal
+  totalValueJpy    Decimal
+  cashNative       Decimal
+  cashJpy          Decimal
+  fxRate           Decimal?
+  rawJson          String?
+
+  account          Account           @relation(fields: [accountId], references: [id])
+  holdingSnapshots HoldingSnapshot[]
+
+  @@index([accountId, capturedAt])
+}
+
+// 銘柄マスタ (口座を跨いで共有)
+model Security {
+  id         String   @id @default(cuid())
+  symbol     String
+  exchange   String?
+  isin       String?
+  name       String
+  currency   String
+  assetClass String   // AssetClass
+  region     String?
+  sector     String?
+  industry   String?
+  tags       String   @default("[]")
+  meta       String   @default("{}")
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  holdings Holding[]
+  prices   PriceSnapshot[]
+
+  @@unique([symbol, exchange])
+}
+
+// 口座 × 銘柄 のリンク
+model Holding {
+  id         String   @id @default(cuid())
+  accountId  String
+  securityId String
+  subAccount String?  // NISA成長 / つみたて / 特定 / 一般 (v1 では null 可)
+  meta       String   @default("{}")
+  createdAt  DateTime @default(now())
+
+  account   Account           @relation(fields: [accountId], references: [id])
+  security  Security          @relation(fields: [securityId], references: [id])
+  snapshots HoldingSnapshot[]
+
+  @@unique([accountId, securityId, subAccount])
+}
+
+// 保有数量・評価額の時系列 (Holding × 時点)
+model HoldingSnapshot {
+  id                  String   @id @default(cuid())
+  snapshotId          String
+  holdingId           String
+  quantity            Decimal
+  marketPriceNative   Decimal
+  marketPriceJpy      Decimal
+  marketValueNative   Decimal
+  marketValueJpy      Decimal
+  avgCostNative       Decimal?
+  unrealizedPnlNative Decimal?
+  unrealizedPnlJpy    Decimal?
+
+  accountSnapshot AccountSnapshot @relation(fields: [snapshotId], references: [id])
+  holding         Holding         @relation(fields: [holdingId], references: [id])
+
+  @@index([holdingId])
+}
+
+// 銘柄ごとの価格スナップショット (watchlist 用に Holding なしでも保存可)
+model PriceSnapshot {
+  id          String   @id @default(cuid())
+  securityId  String
+  capturedAt  DateTime
+  priceNative Decimal
+  priceJpy    Decimal
+
+  security Security @relation(fields: [securityId], references: [id])
+
+  @@index([securityId, capturedAt])
+}
+
+// 為替レート時系列
+model FxRate {
+  id         String   @id @default(cuid())
+  base       String
+  quote      String
+  rate       Decimal
+  capturedAt DateTime
+
+  @@index([base, quote, capturedAt])
+}
+
+// スクレイピング実行履歴
+model ScrapeRun {
+  id              String    @id @default(cuid())
+  source          String
+  startedAt       DateTime  @default(now())
+  finishedAt      DateTime?
+  status          String    // 'ok' | 'error' | 'running' | 'needs_2fa'
+  errorMsg        String?
+  accountsTouched Int       @default(0)
+}
