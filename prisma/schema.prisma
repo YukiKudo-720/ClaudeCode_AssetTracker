@@ -38,6 +38,8 @@ model Account {
 }
 
 // 銘柄マスタ (口座を跨いで共有)
+// sector/industry は GICS 等の固定タクソノミー (1 銘柄 1 値、自動取得想定)。
+// 多値の投資テーマ (半導体 / AI / 量子 等) は Category + SecurityCategory で扱う。
 model Security {
   id         String   @id @default(cuid())
   symbol     String
@@ -47,8 +49,8 @@ model Security {
   currency   String
   assetClass String   // 'cash' | 'stock' | 'etf' | 'mutual_fund' | 'reit' | 'bond' | 'crypto' | 'commodity' | 'other'
   region     String?  // 'jp' | 'us' | 'hk' | 'cn' | 'eu' | 'em' | 'global' | 'other'
-  sector     String?
-  industry   String?
+  sector     String?  // GICS sector level 1 (例 'Information Technology')
+  industry   String?  // GICS industry (例 'Semiconductors')
   tags       String   @default("[]")
   meta       String   @default("{}")
   createdAt  DateTime @default(now())
@@ -58,8 +60,45 @@ model Security {
   prices       PriceSnapshot[]
   transactions Transaction[]
   dividends    Dividend[]
+  categories   SecurityCategory[]
 
   @@unique([symbol, exchange])
+}
+
+// =============================================================================
+// 投資テーマ (Category) — GICS とは別系統で 1 銘柄が複数テーマに属せる + weight
+// 例: NVDA → 半導体, AI, データセンター (3 テーマ、weight でサブ配分)
+//     QQQ  → IT 0.5, 通信 0.2, 消費 0.15, ヘルスケア 0.1, その他 0.05
+// =============================================================================
+
+model Category {
+  id          String   @id @default(cuid())
+  slug        String   @unique  // 'semiconductor', 'quantum', 'ai' 等
+  kind        String   @default("theme")  // v1='theme'、将来 'watchlist'/'custom'
+  name        String   // 表示名 '半導体' '量子' 'AI'
+  description String?
+  parentId    String?  // ツリー構造 (半導体製造装置 ⊂ 半導体 等)
+  color       String?  // UI 色 (省略可、自動割当)
+  sortOrder   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  parent     Category?         @relation("CategoryTree", fields: [parentId], references: [id])
+  children   Category[]        @relation("CategoryTree")
+  securities SecurityCategory[]
+}
+
+model SecurityCategory {
+  securityId String
+  categoryId String
+  weight     Decimal  @default(1.0)  // 構成比 (個別株は通常 1.0、ETF/MF はサブ比率)
+  source     String   @default("user")  // 'user' | 'seed' | 'auto'
+  notedAt    DateTime @default(now())
+
+  security Security @relation(fields: [securityId], references: [id])
+  category Category @relation(fields: [categoryId], references: [id])
+
+  @@id([securityId, categoryId])
+  @@index([categoryId])
 }
 
 // 口座 × 銘柄 のリンク

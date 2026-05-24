@@ -209,6 +209,13 @@ export type TransactionType =
 
 **Dividend** (v1.5〜) — 配当受取専用 (Transaction とは別)。`exDate` / `recordDate` / `paidAt` / `dividendPerShare` 等の配当固有フィールド。NISA枠なら源泉ゼロ等の分析もしやすい。
 
+**Category** + **SecurityCategory** — 投資テーマのマスタ + 多対多リンク。GICS とは別系統:
+- GICS = `Security.sector` / `Security.industry` (固定タクソノミー、1 銘柄 1 値)
+- テーマ = Category (半導体・量子・AI 等、1 銘柄複数値、weight 付き)
+- `SecurityCategory.weight` で ETF 構成比 (QQQ: IT 0.5, 通信 0.2…) や個別株のサブ配分 (NVDA: 半導体 0.5, AI 0.5) を表現
+- 初期 seed 31 テーマ ([scripts/prisma-seed.ts](../../scripts/prisma-seed.ts) で `pnpm db:seed`)、ユーザー任意追加可
+- 階層 (`parentId`) で「半導体製造装置 ⊂ 半導体」のようなネスト対応
+
 **ScrapeRun** — スクレイピング実行履歴。`status: 'ok' | 'error' | 'running' | 'needs_2fa'`。
 
 ### 6.3 設計ポイント
@@ -219,6 +226,7 @@ export type TransactionType =
 - **HoldingSnapshot は AccountSnapshot を JOIN せず直接時系列引ける**: `(holdingId, capturedDate)` 複合 unique で 1 銘柄 × 1 日 = 1 行が保証されるため、index 一発で銘柄推移グラフが描ける
 - **AccountSnapshot は集計値**: `totalValueJpy` `cashJpy` を持ち、Holdings の SUM と一致するよう Worker 側で検算
 - **`subAccount`** (NISA枠等): Holding / Transaction / Dividend で統一的に使う。v1 は null で開始、v1.5 で MF 取引履歴から識別
+- **GICS vs テーマの分離**: `Security.sector/.industry` は固定タクソノミー (1 銘柄 1 値、自動取得想定)、Category は多値かつユーザー編集可。円グラフを GICS 別 / テーマ別で切り替え可能
 - **Transaction / Dividend は schema 同梱、scraping は v1.5**: テーブルは今のマイグレーションで作る (後付け migrate を避ける)。データは MF 取引履歴ページから埋める
 - **イベントの重複防止**: Transaction / Dividend は `externalId` (MF / 証券会社の取引 ID) + `(accountId, externalId)` unique で同じ取引を 2 度書き込まない
 - **`meta` / `tags` / `rawJson`**: 後から分析パターンを増やせる遊び (例: meta に配当利回り、tags に "watchlist")
