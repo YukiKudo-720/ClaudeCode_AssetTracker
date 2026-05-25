@@ -1,5 +1,9 @@
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { existsSync } from 'node:fs';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
+import fastifyStatic from '@fastify/static';
 import { env } from './env.js';
 import { logger } from './logger.js';
 import { bearerAuth } from './auth.js';
@@ -9,6 +13,9 @@ import { registerHoldingsRoutes } from './routes/holdings.js';
 import { registerAllocationRoutes } from './routes/allocation.js';
 import { registerHistoryRoutes } from './routes/history.js';
 import { registerCategoriesRoutes } from './routes/categories.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const PWA_DIST_PATH = path.resolve(__dirname, '..', '..', 'pwa', 'dist');
 
 async function main(): Promise<void> {
   const app = Fastify({ loggerInstance: logger });
@@ -36,6 +43,26 @@ async function main(): Promise<void> {
     registerHistoryRoutes(instance);
     registerCategoriesRoutes(instance);
   });
+
+  // PWA を Fastify から静的配信 (本番モード)。
+  // dist が無い場合 (PWA ビルド前 / dev で vite dev 使用中) は配信スキップ。
+  // SPA ルーティング (react-router) は 404 を index.html にフォールバックして解決。
+  if (existsSync(PWA_DIST_PATH)) {
+    await app.register(fastifyStatic, {
+      root: PWA_DIST_PATH,
+      prefix: '/',
+      decorateReply: false,
+    });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.url.startsWith('/api/')) {
+        return reply.code(404).send({ error: 'not_found' });
+      }
+      return reply.sendFile('index.html');
+    });
+    logger.info({ path: PWA_DIST_PATH }, 'PWA static serving enabled');
+  } else {
+    logger.warn({ path: PWA_DIST_PATH }, 'PWA dist not found - static serving disabled');
+  }
 
   try {
     await app.listen({ host: env.TAILSCALE_IP, port: env.PORT });
