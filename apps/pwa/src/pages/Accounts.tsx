@@ -27,7 +27,9 @@ export function Accounts() {
             <td>{a.kind === 'bank' ? '銀行' : '証券'}</td>
             <td className="text-[var(--color-text-muted)]">{a.source}</td>
             <td className="text-right tabular-nums">
-              {a.latestTotalJpy != null ? `¥${a.latestTotalJpy.toLocaleString('ja-JP')}` : '—'}
+              {a.latestTotalJpy != null
+                ? `¥${a.latestTotalJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`
+                : '—'}
             </td>
           </tr>
         ))}
