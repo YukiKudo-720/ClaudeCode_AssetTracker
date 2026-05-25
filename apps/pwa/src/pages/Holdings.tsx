@@ -12,6 +12,7 @@ import {
 
 const ASSET_CLASS_ORDER: AssetClass[] = [
   'cash',
+  'fx',
   'stock',
   'etf',
   'mutual_fund',
@@ -105,6 +106,16 @@ function AssetClassSection({
 }) {
   const total = items.reduce((s, h) => s + h.totalValueJpy, 0);
   const title = ASSET_CLASS_LABELS[assetClass] ?? assetClass;
+
+  if (assetClass === 'fx') {
+    // FX: 各 SBI証券（FX）等の Account を 1 行で表示
+    return (
+      <section>
+        <Header title={title} count={items.length} total={total} />
+        <FxTable items={items} />
+      </section>
+    );
+  }
 
   if (assetClass === 'cash') {
     // 通貨ごとにサブグループ (1 item = 1 通貨。JPY換算降順)
@@ -217,6 +228,48 @@ function SubHeader({ label, count, total }: { label: string; count: number; tota
         <span className="text-[var(--color-text-muted)] ml-2 font-normal">{count} 件</span>
       </span>
       <span className="tabular-nums text-[var(--color-text-muted)]">{formatJpy(total)}</span>
+    </div>
+  );
+}
+
+// FX セクション (1 行 = 1 FX 口座)
+function FxTable({ items }: { items: HoldingAgg[] }) {
+  type Row = { accountId: string; institution: string; label: string; valueJpy: number };
+  const rows: Row[] = items.flatMap((h) =>
+    h.accounts.map((a) => ({
+      accountId: a.accountId,
+      institution: a.institution,
+      label: a.label,
+      valueJpy: a.valueJpy,
+    })),
+  );
+  rows.sort((a, b) => b.valueJpy - a.valueJpy);
+  return (
+    <div className="overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
+      <table className="w-full text-sm">
+        <thead className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+          <tr>
+            <th className="py-2 px-3">口座</th>
+            <th className="py-2 px-3 text-right w-44">残高 (JPY)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const instLabel = INSTITUTION_LABELS[r.institution as Institution] ?? r.institution;
+            return (
+              <tr key={r.accountId} className="border-t border-[var(--color-border)]">
+                <td className="py-2 px-3">
+                  <div>{instLabel}</div>
+                  {r.label && r.label !== instLabel && (
+                    <div className="text-xs text-[var(--color-text-muted)]">{r.label}</div>
+                  )}
+                </td>
+                <td className="py-2 px-3 text-right tabular-nums">{formatJpy(r.valueJpy)}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }

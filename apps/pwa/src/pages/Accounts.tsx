@@ -1,5 +1,10 @@
 import { useAccounts } from '../api/queries.js';
-import { INSTITUTION_LABELS, type Institution } from '@asset-tracker/shared';
+import {
+  ACCOUNT_KIND_LABELS,
+  INSTITUTION_LABELS,
+  type AccountKind,
+  type Institution,
+} from '@asset-tracker/shared';
 
 export function Accounts() {
   const { data, isLoading } = useAccounts();
@@ -24,7 +29,7 @@ export function Accounts() {
             <td className="py-2 font-medium">
               {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}
             </td>
-            <td>{a.kind === 'bank' ? '銀行' : '証券'}</td>
+            <td>{ACCOUNT_KIND_LABELS[a.kind as AccountKind] ?? a.kind}</td>
             <td className="text-[var(--color-text-muted)]">{a.source}</td>
             <td className="text-right tabular-nums">
               {a.latestTotalJpy != null

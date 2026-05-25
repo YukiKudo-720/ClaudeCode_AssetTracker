@@ -1,4 +1,4 @@
-export type AccountKind = 'bank' | 'brokerage';
+export type AccountKind = 'bank' | 'brokerage' | 'fx';
 
 export type Institution =
   | 'rakuten_bank'
@@ -20,6 +20,7 @@ export type Currency = 'JPY' | 'USD' | 'HKD' | (string & {});
 
 export type AssetClass =
   | 'cash'
+  | 'fx'
   | 'stock'
   | 'etf'
   | 'mutual_fund'
@@ -80,6 +81,7 @@ export const INSTITUTION_KIND: Record<Institution, AccountKind> = {
 
 export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
   cash: '現金',
+  fx: 'FX',
   stock: '個別株',
   etf: 'ETF',
   mutual_fund: '投資信託',
@@ -88,6 +90,12 @@ export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
   crypto: '暗号資産',
   commodity: 'コモディティ',
   other: 'その他',
+};
+
+export const ACCOUNT_KIND_LABELS: Record<AccountKind, string> = {
+  bank: '銀行',
+  brokerage: '証券',
+  fx: 'FX',
 };
 
 export const SUB_ACCOUNT_LABELS: Record<SubAccount, string> = {

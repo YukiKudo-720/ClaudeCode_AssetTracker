@@ -111,6 +111,9 @@ interface BrokerageDetail {
   cashBreakdown: CashRow[];
   stocks: RawStockRow[];
   mutualFunds: RawMfRow[];
+  /** FX セクション合計 (現金マージン + ポジション PnL)。無ければ 0。
+   *  この値は SBI証券 本体ではなく "SBI証券（FX）" 別 Account として emit される */
+  fxTotalJpy: number;
 }
 
 async function ensureLoggedIn(page: Page): Promise<void> {
@@ -294,11 +297,7 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     for (const r of fxCashRows) fxTotal += parseAmount(r.amountText);
     for (const r of fxPositionRows) fxTotal += parseAmount(r.pnlText);
 
-    if (fxTotal !== 0) {
-      // "FX 合計" は detectCashCurrency で JPY 判定される (デフォルト)
-      cashBreakdown.push({ label: 'FX 合計', amountJpy: fxTotal });
-      cashJpy += fxTotal;
-    }
+    // fxTotal は BrokerageDetail.fxTotalJpy として返し、呼び出し側で別 Account 化
   }
 
   // 0件 で本来あるべきなら debug dump (空のセクションは正常)
@@ -315,7 +314,7 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     `  [scrape] ${label}: cash ${cashBreakdown.length}行, 株 ${stocks.length}件, 投信 ${mutualFunds.length}件 (eq=${eqExists} mf=${mfExists} fx=${fxExists}${fxExists ? ` ¥${fxTotal.toLocaleString('ja-JP')}` : ''})`,
   );
 
-  return { cashJpy, cashBreakdown, stocks, mutualFunds };
+  return { cashJpy, cashBreakdown, stocks, mutualFunds, fxTotalJpy: fxTotal };
 }
 
 /**
@@ -530,6 +529,29 @@ export async function scrapeMoneyForward(opts: {
           cashNative: 0, // cash は holdings 側
           holdings,
         });
+
+        // FX セクションがあれば別 Account として emit (例: "SBI証券（FX）")
+        if (detail.fxTotalJpy > 0) {
+          updates.push({
+            institution,
+            kind: 'fx',
+            label: `${row.name}（FX）`,
+            capturedAt,
+            baseCurrency: 'JPY',
+            cashNative: 0,
+            holdings: [
+              {
+                symbol: `${institution.toUpperCase()}_FX_MARGIN`,
+                name: 'FX 残高 (証拠金 + 含み損益)',
+                currency: 'JPY',
+                assetClass: 'fx',
+                region: 'jp',
+                quantity: 1,
+                marketPriceNative: detail.fxTotalJpy,
+              },
+            ],
+          });
+        }
       }
     }
 

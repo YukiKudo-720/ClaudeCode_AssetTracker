@@ -1,6 +1,7 @@
 import type { Logger } from 'pino';
 import type { PrismaClient } from '@prisma/client';
 import type {
+  AccountKind,
   AssetClass,
   DataSource,
   Institution,
@@ -29,6 +30,8 @@ export interface HoldingUpdate {
 
 export interface AccountUpdate {
   institution: Institution;
+  /** 未指定なら INSTITUTION_KIND[institution] にフォールバック。FX 専用口座等で override */
+  kind?: AccountKind;
   label: string;            // ユーザー命名 (口座を区別する識別子。MF の表示名を流用)
   capturedAt: Date;
   baseCurrency: string;

@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export const AccountKindSchema = z.enum(['bank', 'brokerage']);
+export const AccountKindSchema = z.enum(['bank', 'brokerage', 'fx']);
 
 export const InstitutionSchema = z.enum([
   'rakuten_bank',
@@ -22,6 +22,7 @@ export const DataSourceSchema = z.enum([
 
 export const AssetClassSchema = z.enum([
   'cash',
+  'fx',
   'stock',
   'etf',
   'mutual_fund',

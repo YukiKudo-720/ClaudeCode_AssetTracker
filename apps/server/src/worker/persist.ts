@@ -16,11 +16,12 @@ export async function persistAccountUpdate(
   const capturedDate = toJstDateString(update.capturedAt);
 
   // 1. Account を find-or-create ((institution, label) で一意)
+  const kind = update.kind ?? INSTITUTION_KIND[update.institution];
   const account = await prisma.account.upsert({
     where: { institution_label: { institution: update.institution, label: update.label } },
-    update: { updatedAt: new Date() },
+    update: { kind, updatedAt: new Date() },
     create: {
-      kind: INSTITUTION_KIND[update.institution],
+      kind,
       institution: update.institution,
       source,
       label: update.label,
