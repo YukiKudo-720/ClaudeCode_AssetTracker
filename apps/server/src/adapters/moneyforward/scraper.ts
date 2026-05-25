@@ -164,9 +164,10 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     await dumpDebug(page, `detail-${label}-no-depo`);
     throw new Error(`${label}: 詳細ページ読み込み失敗 (URL: ${page.url()})`);
   }
-  // eq / mf は無いブローカー / アカウントもあるので waitForSelector を try-only
+  // eq / mf / fx は無いブローカー / アカウントもあるので waitForSelector を try-only
   await page.waitForSelector('#portfolio_det_eq', { timeout: 3_000 }).catch(() => {});
   await page.waitForSelector('#portfolio_det_mf', { timeout: 3_000 }).catch(() => {});
+  await page.waitForSelector('#portfolio_det_fx', { timeout: 3_000 }).catch(() => {});
 
   // 預金・現金・暗号資産 (depo)
   const cashBreakdownRaw = await page.$$eval(
@@ -185,7 +186,7 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     label: c.label,
     amountJpy: parseAmount(c.amountText),
   }));
-  const cashJpy = cashBreakdown.reduce((s, c) => s + c.amountJpy, 0);
+  let cashJpy = cashBreakdown.reduce((s, c) => s + c.amountJpy, 0);
 
   // 株式（現物）(eq)
   // セクション自体が無い口座もあるので、存在チェックしてから抽出
@@ -260,6 +261,46 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     }))
     .filter((m) => m.quantity > 0 && m.name !== '');
 
+  // FX セクション (SBI証券等): 現金マージン + 通貨ペアポジション PnL の合計を
+  // JPY 現金として cashBreakdown に追加 (個別ポジション詳細は v1.5 で)
+  const fxExists = (await page.$('#portfolio_det_fx')) !== null;
+  let fxTotal = 0;
+  if (fxExists) {
+    const fxCashRows = await page
+      .$$eval('#portfolio_det_fx table.table-depo tbody tr', (trs) => {
+        const out: Array<{ amountText: string }> = [];
+        for (const tr of trs) {
+          const tds = tr.querySelectorAll('td');
+          out.push({ amountText: (tds[1]?.textContent ?? '0').trim() });
+        }
+        return out;
+      })
+      .catch(() => [] as Array<{ amountText: string }>);
+
+    const fxPositionRows = await page
+      .$$eval('#portfolio_det_fx table.table-fx tbody tr', (trs) => {
+        const out: Array<{ pair: string; pnlText: string }> = [];
+        for (const tr of trs) {
+          const tds = tr.querySelectorAll('td');
+          out.push({
+            pair: (tds[0]?.textContent ?? '').trim(),
+            pnlText: (tds[4]?.textContent ?? '0').trim(),
+          });
+        }
+        return out;
+      })
+      .catch(() => [] as Array<{ pair: string; pnlText: string }>);
+
+    for (const r of fxCashRows) fxTotal += parseAmount(r.amountText);
+    for (const r of fxPositionRows) fxTotal += parseAmount(r.pnlText);
+
+    if (fxTotal !== 0) {
+      // "FX 合計" は detectCashCurrency で JPY 判定される (デフォルト)
+      cashBreakdown.push({ label: 'FX 合計', amountJpy: fxTotal });
+      cashJpy += fxTotal;
+    }
+  }
+
   // 0件 で本来あるべきなら debug dump (空のセクションは正常)
   if (eqExists && stocks.length === 0 && stocksRaw.length === 0) {
     await dumpDebug(page, `detail-${label}-empty-eq`);
@@ -271,7 +312,7 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
   }
 
   console.log(
-    `  [scrape] ${label}: cash ${cashBreakdown.length}行, 株 ${stocks.length}件, 投信 ${mutualFunds.length}件 (eqSection=${eqExists}, mfSection=${mfExists})`,
+    `  [scrape] ${label}: cash ${cashBreakdown.length}行, 株 ${stocks.length}件, 投信 ${mutualFunds.length}件 (eq=${eqExists} mf=${mfExists} fx=${fxExists}${fxExists ? ` ¥${fxTotal.toLocaleString('ja-JP')}` : ''})`,
   );
 
   return { cashJpy, cashBreakdown, stocks, mutualFunds };
