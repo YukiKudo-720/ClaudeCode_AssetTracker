@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import type { Institution, Region } from '@asset-tracker/shared';
+import { INSTITUTION_LABELS } from '@asset-tracker/shared';
 import { NeedsLoginError } from '../types.js';
 import { MF_USER_DATA_DIR, MF_URLS } from './profile.js';
 import type { AccountUpdate, HoldingUpdate } from '../types.js';
@@ -41,6 +42,12 @@ const INSTITUTION_MAP: Record<string, Institution> = {
 };
 
 const BANK_INSTITUTIONS = new Set<Institution>(['rakuten_bank', 'mufg', 'sbi_sumishin']);
+
+// 通常の証券口座 institution → FX 専用 institution (別 Account として emit する)
+const FX_INSTITUTION_MAP: Partial<Record<Institution, Institution>> = {
+  sbi_sec: 'sbi_sec_fx',
+  // 将来 rakuten_sec_fx 等が必要になれば追加
+};
 
 function parseAmount(text: string): number {
   return Number(text.replace(/[円¥,\s ]/g, '')) || 0;
@@ -106,14 +113,22 @@ interface RawMfRow {
   marketValue: number;
 }
 
+interface FxPosition {
+  pair: string;          // 例: "MXN/JPY", "MXN/JPY(未実現スワップ)"
+  direction: string;     // "買" | "売"
+  quantity: number;
+  pnlJpy: number;
+}
+
 interface BrokerageDetail {
   cashJpy: number;
   cashBreakdown: CashRow[];
   stocks: RawStockRow[];
   mutualFunds: RawMfRow[];
-  /** FX セクション合計 (現金マージン + ポジション PnL)。無ければ 0。
-   *  この値は SBI証券 本体ではなく "SBI証券（FX）" 別 Account として emit される */
-  fxTotalJpy: number;
+  /** FX セクションの現金マージン (JPY)。無ければ 0 */
+  fxCashMargin: number;
+  /** FX セクションの通貨ペア別ポジション。無ければ [] */
+  fxPositions: FxPosition[];
 }
 
 async function ensureLoggedIn(page: Page): Promise<void> {
@@ -264,10 +279,11 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     }))
     .filter((m) => m.quantity > 0 && m.name !== '');
 
-  // FX セクション (SBI証券等): 現金マージン + 通貨ペアポジション PnL の合計を
-  // JPY 現金として cashBreakdown に追加 (個別ポジション詳細は v1.5 で)
+  // FX セクション (SBI証券等): 現金マージン + 通貨ペアポジション
+  // 別 Account "SBI証券（FX）" として emit される
   const fxExists = (await page.$('#portfolio_det_fx')) !== null;
-  let fxTotal = 0;
+  let fxCashMargin = 0;
+  const fxPositions: FxPosition[] = [];
   if (fxExists) {
     const fxCashRows = await page
       .$$eval('#portfolio_det_fx table.table-depo tbody tr', (trs) => {
@@ -282,22 +298,32 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
 
     const fxPositionRows = await page
       .$$eval('#portfolio_det_fx table.table-fx tbody tr', (trs) => {
-        const out: Array<{ pair: string; pnlText: string }> = [];
+        const out: Array<{ pair: string; dirQty: string; pnlText: string }> = [];
         for (const tr of trs) {
           const tds = tr.querySelectorAll('td');
           out.push({
             pair: (tds[0]?.textContent ?? '').trim(),
+            // tds[1] は "買\n60000" のような複数行テキスト
+            dirQty: (tds[1]?.textContent ?? '').trim(),
             pnlText: (tds[4]?.textContent ?? '0').trim(),
           });
         }
         return out;
       })
-      .catch(() => [] as Array<{ pair: string; pnlText: string }>);
+      .catch(() => [] as Array<{ pair: string; dirQty: string; pnlText: string }>);
 
-    for (const r of fxCashRows) fxTotal += parseAmount(r.amountText);
-    for (const r of fxPositionRows) fxTotal += parseAmount(r.pnlText);
-
-    // fxTotal は BrokerageDetail.fxTotalJpy として返し、呼び出し側で別 Account 化
+    for (const r of fxCashRows) fxCashMargin += parseAmount(r.amountText);
+    for (const r of fxPositionRows) {
+      const m = r.dirQty.match(/(買|売)\s*([\d,]+)/);
+      const direction = m?.[1] ?? '';
+      const quantity = m ? parseAmount(m[2] ?? '') : 0;
+      fxPositions.push({
+        pair: r.pair,
+        direction,
+        quantity,
+        pnlJpy: parseAmount(r.pnlText),
+      });
+    }
   }
 
   // 0件 で本来あるべきなら debug dump (空のセクションは正常)
@@ -310,11 +336,14 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     console.error(`[warn] ${label}: mf section exists but no rows extracted`);
   }
 
+  const fxSummary = fxExists
+    ? ` ¥${(fxCashMargin + fxPositions.reduce((s, p) => s + p.pnlJpy, 0)).toLocaleString('ja-JP')} (margin ¥${fxCashMargin.toLocaleString('ja-JP')} + ${fxPositions.length}ポジ)`
+    : '';
   console.log(
-    `  [scrape] ${label}: cash ${cashBreakdown.length}行, 株 ${stocks.length}件, 投信 ${mutualFunds.length}件 (eq=${eqExists} mf=${mfExists} fx=${fxExists}${fxExists ? ` ¥${fxTotal.toLocaleString('ja-JP')}` : ''})`,
+    `  [scrape] ${label}: cash ${cashBreakdown.length}行, 株 ${stocks.length}件, 投信 ${mutualFunds.length}件 (eq=${eqExists} mf=${mfExists} fx=${fxExists}${fxSummary})`,
   );
 
-  return { cashJpy, cashBreakdown, stocks, mutualFunds, fxTotalJpy: fxTotal };
+  return { cashJpy, cashBreakdown, stocks, mutualFunds, fxCashMargin, fxPositions };
 }
 
 /**
@@ -530,26 +559,38 @@ export async function scrapeMoneyForward(opts: {
           holdings,
         });
 
-        // FX セクションがあれば別 Account として emit (例: "SBI証券（FX）")
-        if (detail.fxTotalJpy > 0) {
+        // FX セクションがあれば別 Institution の Account として emit
+        // (現金マージンは JPY_CASH ホールディング、各ポジションは assetClass='fx')
+        const fxInst = FX_INSTITUTION_MAP[institution];
+        if (fxInst && (detail.fxCashMargin > 0 || detail.fxPositions.length > 0)) {
+          const fxHoldings: HoldingUpdate[] = [];
+          if (detail.fxCashMargin > 0) {
+            fxHoldings.push(buildCashHolding('JPY', detail.fxCashMargin));
+          }
+          for (const pos of detail.fxPositions) {
+            const directionLabel = pos.direction || '';
+            const qtyLabel = pos.quantity > 0
+              ? pos.quantity.toLocaleString('ja-JP')
+              : '';
+            const name = `${pos.pair}${directionLabel ? ` ${directionLabel}` : ''}${qtyLabel ? ` ${qtyLabel}` : ''}`.trim();
+            fxHoldings.push({
+              symbol: pos.pair,
+              name,
+              currency: 'JPY',
+              assetClass: 'fx',
+              region: 'jp',
+              quantity: 1,
+              marketPriceNative: pos.pnlJpy,
+            });
+          }
           updates.push({
-            institution,
+            institution: fxInst,
             kind: 'fx',
-            label: `${row.name}（FX）`,
+            label: INSTITUTION_LABELS[fxInst] ?? `${row.name}（FX）`,
             capturedAt,
             baseCurrency: 'JPY',
             cashNative: 0,
-            holdings: [
-              {
-                symbol: `${institution.toUpperCase()}_FX_MARGIN`,
-                name: 'FX 残高 (証拠金 + 含み損益)',
-                currency: 'JPY',
-                assetClass: 'fx',
-                region: 'jp',
-                quantity: 1,
-                marketPriceNative: detail.fxTotalJpy,
-              },
-            ],
+            holdings: fxHoldings,
           });
         }
       }

@@ -6,6 +6,7 @@ export type Institution =
   | 'sbi_sumishin'
   | 'rakuten_sec'
   | 'sbi_sec'
+  | 'sbi_sec_fx'
   | 'webull'
   | 'moomoo';
 
@@ -65,6 +66,7 @@ export const INSTITUTION_LABELS: Record<Institution, string> = {
   sbi_sumishin: '住信SBIネット銀行',
   rakuten_sec: '楽天証券',
   sbi_sec: 'SBI証券',
+  sbi_sec_fx: 'SBI証券（FX）',
   webull: 'Webull',
   moomoo: 'moomoo証券',
 };
@@ -75,6 +77,7 @@ export const INSTITUTION_KIND: Record<Institution, AccountKind> = {
   sbi_sumishin: 'bank',
   rakuten_sec: 'brokerage',
   sbi_sec: 'brokerage',
+  sbi_sec_fx: 'fx',
   webull: 'brokerage',
   moomoo: 'brokerage',
 };

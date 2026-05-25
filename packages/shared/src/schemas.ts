@@ -8,6 +8,7 @@ export const InstitutionSchema = z.enum([
   'sbi_sumishin',
   'rakuten_sec',
   'sbi_sec',
+  'sbi_sec_fx',
   'webull',
   'moomoo',
 ]);

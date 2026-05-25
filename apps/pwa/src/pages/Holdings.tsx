@@ -232,42 +232,46 @@ function SubHeader({ label, count, total }: { label: string; count: number; tota
   );
 }
 
-// FX セクション (1 行 = 1 FX 口座)
+// FX セクション (1 行 = 1 通貨ペアポジション)
 function FxTable({ items }: { items: HoldingAgg[] }) {
-  type Row = { accountId: string; institution: string; label: string; valueJpy: number };
-  const rows: Row[] = items.flatMap((h) =>
-    h.accounts.map((a) => ({
-      accountId: a.accountId,
-      institution: a.institution,
-      label: a.label,
-      valueJpy: a.valueJpy,
-    })),
-  );
-  rows.sort((a, b) => b.valueJpy - a.valueJpy);
+  const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
   return (
     <div className="overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-sm">
         <thead className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
           <tr>
-            <th className="py-2 px-3">口座</th>
-            <th className="py-2 px-3 text-right w-44">残高 (JPY)</th>
+            <th className="py-2 px-3 w-32">通貨ペア</th>
+            <th className="py-2 px-3">ポジション</th>
+            <th className="py-2 px-3 text-right w-36">含み損益 (JPY)</th>
+            <th className="py-2 px-3 w-44">口座</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => {
-            const instLabel = INSTITUTION_LABELS[r.institution as Institution] ?? r.institution;
-            return (
-              <tr key={r.accountId} className="border-t border-[var(--color-border)]">
-                <td className="py-2 px-3">
-                  <div>{instLabel}</div>
-                  {r.label && r.label !== instLabel && (
-                    <div className="text-xs text-[var(--color-text-muted)]">{r.label}</div>
-                  )}
-                </td>
-                <td className="py-2 px-3 text-right tabular-nums">{formatJpy(r.valueJpy)}</td>
-              </tr>
-            );
-          })}
+          {sorted.map((h) => (
+            <tr key={h.securityId} className="border-t border-[var(--color-border)]">
+              <td className="py-2 px-3 font-mono">{h.symbol}</td>
+              <td className="py-2 px-3">{h.name}</td>
+              <td className="py-2 px-3 text-right tabular-nums">
+                <span
+                  className={
+                    h.totalValueJpy >= 0
+                      ? 'text-[var(--color-positive)]'
+                      : 'text-[var(--color-negative)]'
+                  }
+                >
+                  {h.totalValueJpy >= 0 ? '+' : '-'}¥
+                  {Math.abs(h.totalValueJpy).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+                </span>
+              </td>
+              <td className="py-2 px-3 text-xs">
+                {h.accounts.map((a) => (
+                  <div key={a.accountId}>
+                    {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}
+                  </div>
+                ))}
+              </td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>
