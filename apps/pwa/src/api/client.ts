@@ -32,10 +32,11 @@ export class ApiError extends Error {
 export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const endpoint = getEndpoint();
   const token = getToken();
-  if (!endpoint || !token) {
-    throw new ApiError(0, 'Settings 画面で endpoint と token を設定してください');
+  if (!token) {
+    throw new ApiError(0, 'Settings 画面で Bearer Token を設定してください');
   }
-  const url = endpoint.replace(/\/$/, '') + path;
+  // endpoint 未設定 = 同一オリジン (Tailscale serve 経由等) を使う (relative URL)
+  const url = endpoint ? endpoint.replace(/\/$/, '') + path : path;
   const res = await fetch(url, {
     ...init,
     headers: {

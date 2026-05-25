@@ -20,10 +20,13 @@ export function Settings() {
       <section>
         <h2 className="text-base font-semibold mb-3">API 接続設定</h2>
         <label className="block mb-3">
-          <span className="text-sm text-[var(--color-text-muted)]">Endpoint</span>
+          <span className="text-sm text-[var(--color-text-muted)]">
+            Endpoint{' '}
+            <span className="text-xs">(同一オリジン配信なら空でOK)</span>
+          </span>
           <input
             className="block w-full mt-1 px-3 py-2 border border-[var(--color-border)] rounded bg-[var(--color-bg-elevated)]"
-            placeholder="https://your-pc.tail1234.ts.net"
+            placeholder="(空 = 現在のオリジン) or http://127.0.0.1:3000"
             value={endpoint}
             onChange={(e) => setEndpointState(e.target.value)}
           />
