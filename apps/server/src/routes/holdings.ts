@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
 
 // 銘柄 (Security) 単位で全口座を跨いで集約。最新の capturedDate を採用。
-// 現金 (AccountSnapshot.cashJpy) は通貨ごとに synthetic security 1 行として追加。
+// prev 比較用に、最新より前の最新 capturedDate も別途取得して per-security 集計。
 export function registerHoldingsRoutes(app: FastifyInstance): void {
   app.get('/api/holdings', async () => {
     const latest = await prisma.holdingSnapshot.findFirst({
@@ -10,8 +10,15 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       select: { capturedDate: true },
     });
     if (!latest) {
-      return { capturedDate: null, holdings: [] };
+      return { capturedDate: null, prevCapturedDate: null, holdings: [] };
     }
+
+    // 直前の日 (= 最新 capturedDate より strictly 前で最も新しい日)
+    const prev = await prisma.holdingSnapshot.findFirst({
+      where: { capturedDate: { lt: latest.capturedDate } },
+      orderBy: { capturedDate: 'desc' },
+      select: { capturedDate: true },
+    });
 
     const snapshots = await prisma.holdingSnapshot.findMany({
       where: { capturedDate: latest.capturedDate },
@@ -21,6 +28,20 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
         },
       },
     });
+
+    // 前日 snapshot を securityId -> sum(marketValueJpy) でマップ化
+    const prevValueBySecurity = new Map<string, number>();
+    if (prev) {
+      const prevSnapshots = await prisma.holdingSnapshot.findMany({
+        where: { capturedDate: prev.capturedDate },
+        include: { holding: { select: { securityId: true } } },
+      });
+      for (const ps of prevSnapshots) {
+        const sid = ps.holding.securityId;
+        const v = Number(ps.marketValueJpy);
+        prevValueBySecurity.set(sid, (prevValueBySecurity.get(sid) ?? 0) + v);
+      }
+    }
 
     type Acc = {
       accountId: string;
@@ -96,9 +117,14 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
         unrealizedPnlJpy: h.totalCostJpy > 0 ? h.totalValueJpy - h.totalCostJpy : null,
         unrealizedPnlRatio:
           h.totalCostJpy > 0 ? (h.totalValueJpy - h.totalCostJpy) / h.totalCostJpy : null,
+        prevTotalValueJpy: prevValueBySecurity.get(h.securityId) ?? null,
       }))
       .sort((a, b) => b.totalValueJpy - a.totalValueJpy);
 
-    return { capturedDate: latest.capturedDate, holdings };
+    return {
+      capturedDate: latest.capturedDate,
+      prevCapturedDate: prev?.capturedDate ?? null,
+      holdings,
+    };
   });
 }

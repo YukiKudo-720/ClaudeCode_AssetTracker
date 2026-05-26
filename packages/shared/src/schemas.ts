@@ -132,6 +132,8 @@ export const HoldingAggSchema = z.object({
   totalCostJpy: z.number(),
   unrealizedPnlJpy: z.number().nullable(),
   unrealizedPnlRatio: z.number().nullable(),
+  // 直近の前日 snapshot 比較 (前日データが無ければ null)
+  prevTotalValueJpy: z.number().nullable(),
   accounts: z.array(
     z.object({
       accountId: z.string(),
@@ -147,6 +149,7 @@ export type HoldingAgg = z.infer<typeof HoldingAggSchema>;
 
 export const HoldingsResponseSchema = z.object({
   capturedDate: z.string().nullable(),
+  prevCapturedDate: z.string().nullable(),
   holdings: z.array(HoldingAggSchema),
 });
 export type HoldingsResponse = z.infer<typeof HoldingsResponseSchema>;
@@ -199,6 +202,8 @@ export const CategoryAggSchema = z.object({
   securityCount: z.number(),
   valueJpy: z.number(),
   ratio: z.number(),
+  // 直近の前日値 (今日のテーマ紐付けを昨日の価格に適用したもの)
+  prevValueJpy: z.number().nullable(),
   securities: z.array(CategorySecurityEntrySchema),
 });
 export type CategoryAgg = z.infer<typeof CategoryAggSchema>;
@@ -214,6 +219,7 @@ export type UntaggedSecurity = z.infer<typeof UntaggedSecuritySchema>;
 
 export const CategoriesResponseSchema = z.object({
   capturedDate: z.string().nullable(),
+  prevCapturedDate: z.string().nullable(),
   totalJpy: z.number(),
   untaggedJpy: z.number(),
   categories: z.array(CategoryAggSchema),

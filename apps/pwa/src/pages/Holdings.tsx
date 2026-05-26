@@ -56,6 +56,33 @@ function formatJpy(v: number): string {
   return `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
 }
 
+function formatSignedJpy(v: number): string {
+  const sign = v >= 0 ? '+' : '−';
+  return `${sign}¥${Math.abs(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
+}
+
+function diffClass(v: number): string {
+  return v >= 0 ? 'text-[var(--color-positive)]' : 'text-[var(--color-negative)]';
+}
+
+/** 前日比表示: amount + pct + ラベル省略 */
+function DayDiff({ current, prev }: { current: number; prev: number | null }) {
+  if (prev == null || prev === 0) {
+    return <span className="text-[var(--color-text-muted)] text-xs">—</span>;
+  }
+  const diff = current - prev;
+  const pct = (diff / prev) * 100;
+  return (
+    <span className={`tabular-nums ${diffClass(diff)}`}>
+      {formatSignedJpy(diff)}
+      <span className="opacity-80 ml-1">
+        ({diff >= 0 ? '+' : ''}
+        {pct.toFixed(2)}%)
+      </span>
+    </span>
+  );
+}
+
 export function Holdings() {
   const { data, isLoading, isError } = useHoldings();
 
@@ -79,9 +106,12 @@ export function Holdings() {
 
   return (
     <div className="space-y-8">
-      <div className="text-sm text-[var(--color-text-muted)] flex justify-between items-baseline">
+      <div className="text-sm text-[var(--color-text-muted)] flex justify-between items-baseline flex-wrap gap-2">
         <span>
           {data.holdings.length} 件 / 取得日 {data.capturedDate ?? '-'}
+          {data.prevCapturedDate && (
+            <span className="ml-2 opacity-70">(前日比: vs {data.prevCapturedDate})</span>
+          )}
         </span>
         <span className="text-base text-[var(--color-text)] tabular-nums font-medium">
           総額 {formatJpy(grandTotal)}
@@ -108,7 +138,6 @@ function AssetClassSection({
   const title = ASSET_CLASS_LABELS[assetClass] ?? assetClass;
 
   if (assetClass === 'fx') {
-    // FX: 各 SBI証券（FX）等の Account を 1 行で表示
     return (
       <section>
         <Header title={title} count={items.length} total={total} />
@@ -118,7 +147,6 @@ function AssetClassSection({
   }
 
   if (assetClass === 'cash') {
-    // 通貨ごとにサブグループ (1 item = 1 通貨。JPY換算降順)
     const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
     return (
       <section>
@@ -142,40 +170,7 @@ function AssetClassSection({
     );
   }
 
-  if (assetClass === 'mutual_fund') {
-    // 投信も region でサブグループ化 (米国/全世界/日本/新興国 等)
-    const byRegion = new Map<Region | 'unknown', HoldingAgg[]>();
-    for (const h of items) {
-      const r = (h.region as Region | null) ?? 'unknown';
-      const arr = byRegion.get(r) ?? [];
-      arr.push(h);
-      byRegion.set(r, arr);
-    }
-    const regions: Array<Region | 'unknown'> = [
-      ...REGION_ORDER.filter((r) => byRegion.has(r)),
-      ...(byRegion.has('unknown') ? (['unknown'] as const) : []),
-    ];
-    return (
-      <section>
-        <Header title={title} count={items.length} total={total} />
-        <div className="space-y-4">
-          {regions.map((r) => {
-            const subset = byRegion.get(r)!;
-            const subTotal = subset.reduce((s, h) => s + h.totalValueJpy, 0);
-            const label = r === 'unknown' ? '未分類' : REGION_LABELS[r as Region] ?? r;
-            return (
-              <div key={r}>
-                <SubHeader label={label} count={subset.length} total={subTotal} />
-                <MutualFundTable items={subset} />
-              </div>
-            );
-          })}
-        </div>
-      </section>
-    );
-  }
-
-  // stock / etf / reit / bond 等: region で sub-grouping
+  // 投信 / 株 / ETF 等: region でサブグループ化
   const byRegion = new Map<Region | 'unknown', HoldingAgg[]>();
   for (const h of items) {
     const r = (h.region as Region | null) ?? 'unknown';
@@ -188,6 +183,8 @@ function AssetClassSection({
     ...(byRegion.has('unknown') ? (['unknown'] as const) : []),
   ];
 
+  const isMutualFund = assetClass === 'mutual_fund';
+
   return (
     <section>
       <Header title={title} count={items.length} total={total} />
@@ -199,7 +196,8 @@ function AssetClassSection({
           return (
             <div key={r}>
               <SubHeader label={label} count={subset.length} total={subTotal} />
-              <SecurityTable items={subset} />
+              {isMutualFund ? <MutualFundTable items={subset} /> : <SecurityTable items={subset} />}
+              <SecurityCardList items={subset} mutualFund={isMutualFund} />
             </div>
           );
         })}
@@ -232,7 +230,7 @@ function SubHeader({ label, count, total }: { label: string; count: number; tota
   );
 }
 
-// FX セクション (1 行 = 1 通貨ペアポジション)
+// ---------- FX ----------
 function FxTable({ items }: { items: HoldingAgg[] }) {
   const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
   return (
@@ -252,15 +250,8 @@ function FxTable({ items }: { items: HoldingAgg[] }) {
               <td className="py-2 px-3 font-mono">{h.symbol}</td>
               <td className="py-2 px-3">{h.name}</td>
               <td className="py-2 px-3 text-right tabular-nums">
-                <span
-                  className={
-                    h.totalValueJpy >= 0
-                      ? 'text-[var(--color-positive)]'
-                      : 'text-[var(--color-negative)]'
-                  }
-                >
-                  {h.totalValueJpy >= 0 ? '+' : '-'}¥
-                  {Math.abs(h.totalValueJpy).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+                <span className={diffClass(h.totalValueJpy)}>
+                  {formatSignedJpy(h.totalValueJpy)}
                 </span>
               </td>
               <td className="py-2 px-3 text-xs">
@@ -278,7 +269,7 @@ function FxTable({ items }: { items: HoldingAgg[] }) {
   );
 }
 
-// 単一通貨の現金テーブル (1 行 = 1 口座)
+// ---------- Cash (per-currency) ----------
 function CurrencyCashTable({ item }: { item: HoldingAgg }) {
   const accounts = [...item.accounts].sort((a, b) => b.valueJpy - a.valueJpy);
   return (
@@ -315,17 +306,18 @@ function CurrencyCashTable({ item }: { item: HoldingAgg }) {
   );
 }
 
+// ---------- Securities (stock/etf/reit/...) — Desktop table ----------
 function SecurityTable({ items }: { items: HoldingAgg[] }) {
   const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
   return (
-    <div className="overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
+    <div className="hidden md:block overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-sm">
         <thead className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
           <tr>
             <th className="py-2 px-3 w-24">コード</th>
             <th className="py-2 px-3">銘柄名</th>
             <th className="py-2 px-3 text-right w-24">数量</th>
-            <th className="py-2 px-3 text-right w-32">評価額 (JPY)</th>
+            <th className="py-2 px-3 text-right w-44">評価額 / 前日比</th>
             <th className="py-2 px-3 text-right w-36">損益 (JPY)</th>
             <th className="py-2 px-3 w-56">保有口座</th>
           </tr>
@@ -344,21 +336,15 @@ function SecurityTable({ items }: { items: HoldingAgg[] }) {
                 {h.totalQuantity.toLocaleString('ja-JP', { maximumFractionDigits: 4 })}
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                {formatJpy(h.totalValueJpy)}
+                <div>{formatJpy(h.totalValueJpy)}</div>
+                <div className="text-xs">
+                  <DayDiff current={h.totalValueJpy} prev={h.prevTotalValueJpy} />
+                </div>
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
                 {h.unrealizedPnlJpy != null ? (
-                  <span
-                    className={
-                      h.unrealizedPnlJpy >= 0
-                        ? 'text-[var(--color-positive)]'
-                        : 'text-[var(--color-negative)]'
-                    }
-                  >
-                    {h.unrealizedPnlJpy >= 0 ? '+' : '-'}¥
-                    {Math.abs(h.unrealizedPnlJpy).toLocaleString('ja-JP', {
-                      maximumFractionDigits: 0,
-                    })}
+                  <span className={diffClass(h.unrealizedPnlJpy)}>
+                    {formatSignedJpy(h.unrealizedPnlJpy)}
                     {h.unrealizedPnlRatio != null && (
                       <div className="text-xs">
                         {h.unrealizedPnlJpy >= 0 ? '+' : ''}
@@ -393,13 +379,13 @@ function SecurityTable({ items }: { items: HoldingAgg[] }) {
 function MutualFundTable({ items }: { items: HoldingAgg[] }) {
   const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
   return (
-    <div className="overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
+    <div className="hidden md:block overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-sm">
         <thead className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
           <tr>
             <th className="py-2 px-3">銘柄名</th>
             <th className="py-2 px-3 text-right w-28">口数</th>
-            <th className="py-2 px-3 text-right w-32">評価額 (JPY)</th>
+            <th className="py-2 px-3 text-right w-44">評価額 / 前日比</th>
             <th className="py-2 px-3 text-right w-36">損益 (JPY)</th>
             <th className="py-2 px-3 w-56">保有口座</th>
           </tr>
@@ -412,21 +398,15 @@ function MutualFundTable({ items }: { items: HoldingAgg[] }) {
                 {h.totalQuantity.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
-                {formatJpy(h.totalValueJpy)}
+                <div>{formatJpy(h.totalValueJpy)}</div>
+                <div className="text-xs">
+                  <DayDiff current={h.totalValueJpy} prev={h.prevTotalValueJpy} />
+                </div>
               </td>
               <td className="py-2 px-3 text-right tabular-nums whitespace-nowrap">
                 {h.unrealizedPnlJpy != null ? (
-                  <span
-                    className={
-                      h.unrealizedPnlJpy >= 0
-                        ? 'text-[var(--color-positive)]'
-                        : 'text-[var(--color-negative)]'
-                    }
-                  >
-                    {h.unrealizedPnlJpy >= 0 ? '+' : '-'}¥
-                    {Math.abs(h.unrealizedPnlJpy).toLocaleString('ja-JP', {
-                      maximumFractionDigits: 0,
-                    })}
+                  <span className={diffClass(h.unrealizedPnlJpy)}>
+                    {formatSignedJpy(h.unrealizedPnlJpy)}
                     {h.unrealizedPnlRatio != null && (
                       <div className="text-xs">
                         {h.unrealizedPnlJpy >= 0 ? '+' : ''}
@@ -449,6 +429,75 @@ function MutualFundTable({ items }: { items: HoldingAgg[] }) {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---------- Mobile card layout (stocks + mutual funds) ----------
+function SecurityCardList({ items, mutualFund }: { items: HoldingAgg[]; mutualFund: boolean }) {
+  const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
+  return (
+    <div className="md:hidden space-y-2">
+      {sorted.map((h) => (
+        <article
+          key={h.securityId}
+          className="bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)] p-3"
+        >
+          {/* row1: symbol + name (left), 評価額 (right) */}
+          <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0 flex-1">
+              {!mutualFund && h.symbol && (
+                <div className="text-xs font-mono text-[var(--color-text-muted)]">
+                  {h.symbol}
+                  {h.sector && <span className="ml-2">· {h.sector}</span>}
+                </div>
+              )}
+              <div className="font-medium truncate">{h.name}</div>
+            </div>
+            <div className="text-right tabular-nums whitespace-nowrap">
+              <div className="font-semibold">{formatJpy(h.totalValueJpy)}</div>
+              <div className="text-xs">
+                <DayDiff current={h.totalValueJpy} prev={h.prevTotalValueJpy} />
+              </div>
+            </div>
+          </div>
+
+          {/* row2: 数量 (left), 損益 (right) */}
+          <div className="flex justify-between items-baseline mt-2 text-xs">
+            <span className="text-[var(--color-text-muted)] tabular-nums">
+              {mutualFund ? '口数' : '数量'} ×
+              {h.totalQuantity.toLocaleString('ja-JP', { maximumFractionDigits: mutualFund ? 0 : 4 })}
+            </span>
+            <span className="tabular-nums">
+              {h.unrealizedPnlJpy != null ? (
+                <span className={diffClass(h.unrealizedPnlJpy)}>
+                  損益 {formatSignedJpy(h.unrealizedPnlJpy)}
+                  {h.unrealizedPnlRatio != null && (
+                    <span className="opacity-80 ml-1">
+                      ({h.unrealizedPnlJpy >= 0 ? '+' : ''}
+                      {(h.unrealizedPnlRatio * 100).toFixed(2)}%)
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-[var(--color-text-muted)]">—</span>
+              )}
+            </span>
+          </div>
+
+          {/* row3: 口座一覧 */}
+          {h.accounts.length > 0 && (
+            <div className="mt-2 pt-2 border-t border-[var(--color-border)] text-xs text-[var(--color-text-muted)] flex flex-wrap gap-x-3 gap-y-1">
+              {h.accounts.map((a) => (
+                <span key={a.accountId} className="tabular-nums">
+                  {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution} ×
+                  {a.quantity.toLocaleString('ja-JP', { maximumFractionDigits: mutualFund ? 0 : 4 })}
+                </span>
+              ))}
+            </div>
+          )}
+        </article>
+      ))}
     </div>
   );
 }

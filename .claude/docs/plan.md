@@ -735,6 +735,11 @@ await fastify.register(fastifyStatic, {
   - 案 B (スケジュール内でサーバ一時起動) / 案 C (サーバを Windows サービス化) は **将来必要なら検討**
 - [ ] **未 push commit** が多数。push タイミングはユーザー判断
 - [ ] **未使用ファイル**: [apps/pwa/src/db/dexie.ts](../../apps/pwa/src/db/dexie.ts) は React Query 永続化に置き換え済みで未使用 (削除禁止ルールのため残置)
+- [ ] **個別銘柄の時系列グラフ** (UI 未実装、データは取得済み)
+  - `HoldingSnapshot` テーブルが per-Account × Security × Date で `quantity` / `marketPriceNative` / `valueJpy` を保持
+  - 必要なのは: `/api/history/holding?symbol=...` エンドポイント + [Holdings.tsx](../../apps/pwa/src/pages/Holdings.tsx) の銘柄行クリック → 個別グラフ画面
+  - 描画候補: (a) 評価額推移 (b) 数量推移 (c) 単価推移
+- [ ] **履歴データの遡及不可**: 5/24 以前のデータは開発中の DB 作り直しで消滅。5/25 以降は capturedDate ベースの日次 upsert で正常に積み上がる
 
 ### ファイル配置メモ
 

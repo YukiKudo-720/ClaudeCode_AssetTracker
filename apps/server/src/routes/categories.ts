@@ -11,7 +11,35 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
       select: { capturedDate: true },
     });
     if (!latest) {
-      return { capturedDate: null, categories: [], untagged: [], totalJpy: 0, untaggedJpy: 0 };
+      return {
+        capturedDate: null,
+        prevCapturedDate: null,
+        categories: [],
+        untagged: [],
+        totalJpy: 0,
+        untaggedJpy: 0,
+      };
+    }
+
+    // 前日 (= 最新より strictly 前で最も新しい capturedDate)
+    const prev = await prisma.holdingSnapshot.findFirst({
+      where: { capturedDate: { lt: latest.capturedDate } },
+      orderBy: { capturedDate: 'desc' },
+      select: { capturedDate: true },
+    });
+
+    // 前日 snapshot を securityId -> sum(marketValueJpy) でマップ化
+    const prevValueBySecurity = new Map<string, number>();
+    if (prev) {
+      const prevSnapshots = await prisma.holdingSnapshot.findMany({
+        where: { capturedDate: prev.capturedDate },
+        include: { holding: { select: { securityId: true } } },
+      });
+      for (const ps of prevSnapshots) {
+        const sid = ps.holding.securityId;
+        const v = Number(ps.marketValueJpy);
+        prevValueBySecurity.set(sid, (prevValueBySecurity.get(sid) ?? 0) + v);
+      }
     }
 
     // すべての Category (theme)
@@ -44,6 +72,7 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
       sortOrder: number;
       securityCount: number;
       valueJpy: number;
+      prevValueJpy: number; // 前日値 (snapshot 無ければ 0、後で null に変換)
       securities: Array<{
         securityId: string;
         symbol: string;
@@ -64,6 +93,7 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
         sortOrder: c.sortOrder,
         securityCount: 0,
         valueJpy: 0,
+        prevValueJpy: 0,
         securities: [],
       });
     }
@@ -121,6 +151,7 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
         untaggedJpy += sec.valueJpy;
         continue;
       }
+      const prevSecValue = prevValueBySecurity.get(sec.secId) ?? 0;
       for (const link of sec.categories) {
         const cat = catMap.get(link.id);
         if (!cat) continue;
@@ -135,6 +166,7 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
           weightedValueJpy: weightedValue,
         });
         cat.valueJpy += weightedValue;
+        cat.prevValueJpy += prevSecValue * link.weight;
         cat.securityCount += 1;
       }
     }
@@ -144,6 +176,8 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
       .map((c) => ({
         ...c,
         ratio: totalJpy > 0 ? c.valueJpy / totalJpy : 0,
+        // 前日 snapshot が無い場合は null
+        prevValueJpy: prev ? c.prevValueJpy : null,
         securities: c.securities.sort((a, b) => b.weightedValueJpy - a.weightedValueJpy),
       }))
       .sort((a, b) => b.valueJpy - a.valueJpy);
@@ -152,6 +186,7 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
 
     return {
       capturedDate: latest.capturedDate,
+      prevCapturedDate: prev?.capturedDate ?? null,
       totalJpy,
       untaggedJpy,
       categories,
