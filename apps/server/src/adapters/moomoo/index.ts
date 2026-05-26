@@ -53,7 +53,8 @@ interface PyAccount {
   label: string;
   accType: string;
   baseCurrency: string;
-  cashNative: number;
+  /** 通貨コード → native 現金額。例: { USD: 1232.18, JPY: 50023.0 } */
+  cashByCurrency: Record<string, number>;
   positions: PyPosition[];
   _diagnostics?: {
     funds_error?: string | null;
@@ -144,17 +145,19 @@ export const moomooAdapter: Adapter = {
     const capturedAt = new Date();
     const updates: AccountUpdate[] = py.accounts.map((acc) => {
       const holdings: HoldingUpdate[] = acc.positions.map(toHoldingUpdate);
-      // 現金を holdings に追加 (assetClass='cash')
-      if (acc.cashNative > 0) {
-        holdings.push({
-          symbol: `${acc.baseCurrency}_CASH`,
-          name: `${acc.baseCurrency} 現金`,
-          currency: acc.baseCurrency,
-          assetClass: 'cash',
-          region: regionFromCurrency(acc.baseCurrency),
-          quantity: acc.cashNative,
-          marketPriceNative: 1,
-        });
+      // 通貨別 cash を個別の Holding として追加
+      for (const [currency, amount] of Object.entries(acc.cashByCurrency)) {
+        if (amount > 0) {
+          holdings.push({
+            symbol: `${currency}_CASH`,
+            name: `${currency} 現金`,
+            currency,
+            assetClass: 'cash',
+            region: regionFromCurrency(currency),
+            quantity: amount,
+            marketPriceNative: 1,
+          });
+        }
       }
       return {
         institution: 'moomoo' as const,

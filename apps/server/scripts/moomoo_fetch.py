@@ -93,12 +93,25 @@ def normalize_position(pos: dict) -> dict:
     }
 
 
+# 通貨コード → accinfo_query 内のフィールド名
+CASH_FIELD_BY_CURRENCY = {
+    'USD': 'us_cash',
+    'JPY': 'jp_cash',
+    'HKD': 'hk_cash',
+    'CNY': 'cn_cash',  # cnh_net_cash_power 系も別途あるがまず cn_cash
+    'SGD': 'sg_cash',
+    'AUD': 'au_cash',
+    'CAD': 'ca_cash',
+    'MYR': 'my_cash',
+}
+
+
 def fetch_account(ctx, acc_row) -> dict:
     acc_id = int(acc_row['acc_id'])
     card_num = str(acc_row.get('card_num', '')) or str(acc_id)
 
-    # cash: USD 口座と仮定して USD 通貨でクエリ
-    cash_native = 0.0
+    # accinfo_query は currency=USD で 1 回呼ぶだけで全通貨の us_cash/jp_cash 等が返る
+    cash_by_currency: dict[str, float] = {}
     base_currency = 'USD'
     funds_error = None
     try:
@@ -107,7 +120,17 @@ def fetch_account(ctx, acc_row) -> dict:
         )
         if ret == RET_OK and len(funds) > 0:
             row = funds.iloc[0]
-            cash_native = float(row.get('cash') or 0)
+            for cur, field in CASH_FIELD_BY_CURRENCY.items():
+                val = row.get(field)
+                if val is None:
+                    continue
+                # N/A は str で来るので除外
+                try:
+                    amount = float(val)
+                except (TypeError, ValueError):
+                    continue
+                if amount > 0:
+                    cash_by_currency[cur] = amount
         else:
             funds_error = str(funds)
     except Exception as e:
@@ -131,7 +154,7 @@ def fetch_account(ctx, acc_row) -> dict:
         'label': 'moomoo証券',  # 機関名と統一 (複数口座あれば将来 disambig)
         'accType': str(acc_row.get('acc_type', '')),
         'baseCurrency': base_currency,
-        'cashNative': cash_native,
+        'cashByCurrency': cash_by_currency,  # {'USD': 1232.18, 'JPY': 50023.0, ...}
         'positions': positions,
         '_diagnostics': {
             'funds_error': funds_error,
@@ -168,8 +191,8 @@ def main():
             seen_ids.add(aid)
 
             entry = fetch_account(ctx, row)
-            # positions が無い & cash が 0 の口座は除外 (demo/sim)
-            if not entry['positions'] and entry['cashNative'] == 0:
+            # positions が無い & cash が全通貨 0 の口座は除外 (demo/sim)
+            if not entry['positions'] and not entry['cashByCurrency']:
                 continue
             out['accounts'].append(entry)
     except Exception as e:
