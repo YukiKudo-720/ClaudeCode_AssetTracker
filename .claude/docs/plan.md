@@ -667,7 +667,7 @@ await fastify.register(fastifyStatic, {
 
 ## 17. 次の作業
 
-### 完了
+### 完了 (基盤)
 
 - [x] §14-1 scaffold: pnpm workspaces 初期化 (corepack pnpm 11.2.2、4 workspaces)
 - [x] `.env.example` / `.gitignore` 整備 (DATABASE_URL, ASSET_TRACKER_TOKEN, TAILSCALE_IP, PORT, LOG_LEVEL)
@@ -677,29 +677,70 @@ await fastify.register(fastifyStatic, {
   - `prisma/schema.prisma` をリポルート、`apps/server/prisma.config.ts` で schema パス指定
   - Prisma 6.x の auto-install バグ (`pnpm add` が PATH 不在で fail) は **no-op shim** で回避: [scripts/install-prisma-shim.mjs](../../scripts/install-prisma-shim.mjs) を postinstall フックで配置
 - [x] §14-4 Fastify 骨格 (`apps/server/src/index.ts`): /api/health (認証なし) + Bearer auth middleware で他全 route 保護 + Tailscale IP only bind
-- [x] §14-10 API ルート初期実装: `/api/accounts` `/api/accounts/:id/snapshots` `/api/run-now` `/api/runs`
+- [x] §14-5 keytar 配線 + credentials 登録 CLI
+
+### 完了 (アダプタ実装)
+
+- [x] §14-6 **MoneyForward adapter** ([apps/server/src/adapters/moneyforward/](../../apps/server/src/adapters/moneyforward/))
+  - Playwright Persistent Context で MF ME ログインセッションを永続化
+  - headful 必須 (headless は MF に 403 検出される) → `HEADLESS=1` のみ headless opt-in
+  - 抽出: 銀行残高、株式 (個別株/ETF 自動判別)、投資信託 (region 自動判別)、FX
+  - SBI証券 FX セクションは `sbi_sec_fx` 別 institution として独立計上
+- [x] §14-7 為替更新: **frankfurter.app** (ECB ベース無料) を使用 (exchangerate.host は API key 必須化されたため変更)
+- [x] §14-8 Webull adapter — HMAC-SHA1 署名実装済み、ただし 401 UNAUTHORIZED 継続中
+  - サポート問い合わせ済 (clientservices@webull.co.jp、ソースコード添付)
+  - 添付物: `data/webull-support/` (signer.js.txt + repro_python.py + README.md)
+  - **状態: サポート返答待ち。動作未確認**
+- [x] §14-9 **Moomoo adapter** (Futu OpenAPI) ([apps/server/src/adapters/moomoo/](../../apps/server/src/adapters/moomoo/))
+  - Node ⇄ Python サブプロセス連携 (futu-api 公式 SDK は Python のみ)
+  - OpenD (127.0.0.1:11111) を起動しておく必要あり
+  - 通貨別現金分類済 (`accinfo_query` の `us_cash` / `jp_cash` / `hk_cash` 等を個別 Holding 化)
+  - Windows cp932 文字化け対策: `PYTHONIOENCODING=utf-8` + `sys.stdout.reconfigure`
+
+### 完了 (UI / 配信)
+
+- [x] §14-10 API ルート群: `/api/accounts` `/api/accounts/:id/snapshots` `/api/run-now` `/api/runs` `/api/holdings` `/api/allocation` `/api/history/total` `/api/categories`
 - [x] §14-11 PWA scaffold: Vite 6 + React 18 + Tailwind 4 + TanStack Query 5 + Dexie 4
-- [x] §14-13 5 画面骨格: Dashboard / Accounts / Holdings / History / Settings + Layout + SyncIndicator
-- [x] 全 3 workspaces typecheck 通過
+- [x] §14-13 全画面実装: Dashboard / Accounts / Holdings / Categories / History / Settings
+- [x] §14-14 Recharts でグラフ実装 (配分円グラフ・残高推移)
+- [x] §14-15 PWA 化 (vite-plugin-pwa、manifest 設定)
+- [x] §14-16 **Tailscale 配信** 完了
+  - Fastify から PWA dist を `@fastify/static` で同一オリジン静的配信
+  - `TAILSCALE_IP=127.0.0.1` で bind、`tailscale serve` が HTTPS プロキシ
+  - PWA `apiFetch` は Endpoint 未設定 = 同一オリジン (relative URL) フォールバック
+- [x] **テーマタグ機能** (半導体/AI/量子/宇宙/レアアース 等の many-to-many タグ + 自動タグ付け)
+- [x] **PWA オフライン対応** ([commit 5d5facd])
+  - `@tanstack/react-query-persist-client` + `idb-keyval` で React Query キャッシュを IndexedDB に 24h 永続化
+  - Workbox `runtimeCaching` で `/api/*` を NetworkFirst (5s timeout → SW キャッシュ)
+  - `SyncIndicator` にオフライン/キャッシュ表示モード追加 (CloudOff アイコン + `(cache)` バッジ)
 
-### 次の TODO (実装フェーズ)
+### 完了 (運用)
 
-- [ ] §14-5 keytar 配線 + credentials 登録 CLI (`scripts/set-credentials.ts`)
-- [ ] §14-6 **MoneyForward adapter** (最大の山。Playwright で MF ME ログイン → 資産一覧から残高/銘柄抽出)
-  - 着手前に確認: 2FA 方式 (SMS / 認証アプリ / メール)、初回ログインの手動承認手順
-- [ ] §14-7 為替更新 (exchangerate.host)
-- [ ] §14-8 Webull adapter
-- [ ] §14-9 Moomoo adapter (OpenD 経由)
-- [ ] §14-12 TanStack Query → Dexie ミラー実装
-- [ ] §14-14 Recharts でグラフ実装
-- [ ] §14-15 PWA 化 (icons + manifest 充実)
-- [ ] §14-16 Tailscale Step 5-9 (Fastify bind + serve + 静的配信 + 実機確認)
-- [ ] §14-17 Windows タスクスケジューラ登録
-- [ ] §14-18 テスト
-- [ ] §14-19 手動 QA
+- [x] §14-17 **スケジュール同期** (Windows タスクスケジューラ)
+  - [apps/server/scripts/scrape-all.ts](../../apps/server/scripts/scrape-all.ts) — `runAllAdapters()` を呼ぶ standalone CLI
+  - [scripts/scheduled-sync.ps1](../../scripts/scheduled-sync.ps1) — 同期 + ログ追記 + (`-SuspendAfter` で) スリープ復帰
+  - [scripts/register-scheduled-sync.ps1](../../scripts/register-scheduled-sync.ps1) — `Register-ScheduledTask` で `WakeToRun=$true` 登録
+  - 実行時刻: **07:00 (朝)** と **15:35 (Tokyo close 後)** の 1 日 2 回
+  - 完了後に PC をスリープに戻す (`rundll32 powrprof.dll,SetSuspendState`)
+  - ログ: `logs/scheduled-sync.log`
+  - **注意**: `.ps1` は UTF-8 BOM 付き必須 (PowerShell 5.1 が ANSI 解釈してパースエラーになるため)
+
+### 申し送り事項 (未解決 / 後回し)
+
+- [ ] **Webull adapter 401 問題** — サポート返答待ち。コード側は HMAC-SHA1 署名・パス・パラメータ全て Python SDK と一致確認済み。アカウント設定 (App key/secret/IP whitelist/permissions) 問題の可能性
+- [ ] **IG証券**: API なし + MF も OTP 必須で自動取得不可。手動入力 UI が必要だが、優先度低 → **後回し**
+- [ ] **PWA がスケジュール同期の結果を即時反映しない問題** (案 A で運用継続)
+  - スケジュール: scrape:all は DB 更新するが、PC が即スリープに戻るためサーバが起動していない
+  - PWA がデータを「見る」には、ユーザーが PC を起こして手動で `pnpm dev` 等でサーバを起動する必要がある
+  - 案 B (スケジュール内でサーバ一時起動) / 案 C (サーバを Windows サービス化) は **将来必要なら検討**
+- [ ] **未 push commit** が多数。push タイミングはユーザー判断
+- [ ] **未使用ファイル**: [apps/pwa/src/db/dexie.ts](../../apps/pwa/src/db/dexie.ts) は React Query 永続化に置き換え済みで未使用 (削除禁止ルールのため残置)
 
 ### ファイル配置メモ
 
 - リポジトリ構成: pnpm workspaces (`apps/server` + `apps/pwa` + `packages/shared`)。Prisma schema はリポルート `prisma/schema.prisma` に集約
 - secrets: `.env` は `.gitignore` 済み (`.env.example` を雛形として提供)
 - Prisma の auto-install 回避策: `apps/server/node_modules/.bin/pnpm.CMD` の no-op shim は postinstall で自動再配置されるので `pnpm install` を再実行しても消えない
+- PowerShell スクリプト (`scripts/*.ps1`) は **UTF-8 BOM** 必須。`.gitattributes` に `*.ps1 working-tree-encoding=UTF-8-BOM` 設定推奨 (未対応)
+- スケジュールタスク登録は管理者 PowerShell で `powershell -ExecutionPolicy Bypass -File scripts/register-scheduled-sync.ps1`
+- 電源オプションで「スリープ解除タイマーの許可」を有効化必須: `powercfg /SETACVALUEINDEX SCHEME_CURRENT SUB_SLEEP RTCWAKE 1`
