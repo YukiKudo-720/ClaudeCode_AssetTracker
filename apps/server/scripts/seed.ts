@@ -26,7 +26,7 @@ const THEMES: SeedTheme[] = [
   { slug: 'ai',                    name: 'AI',               sortOrder: 30 },
   { slug: 'cloud',                 name: 'クラウド',         sortOrder: 40 },
   { slug: 'quantum',               name: '量子',             sortOrder: 50 },
-  { slug: 'quantum_computer',      name: '量子コンピュータ', sortOrder: 60, description: '量子の中でも特に計算機系' },
+  { slug: 'quantum_computer',      name: '量子関連',         sortOrder: 60, description: '量子の中でも特に計算機系' },
   { slug: 'drone',                 name: 'ドローン',         sortOrder: 70 },
   // 通信・インフラ・宇宙
   { slug: 'optical_communication', name: '光通信',           sortOrder: 100 },

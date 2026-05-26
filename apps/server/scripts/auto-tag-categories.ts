@@ -45,7 +45,7 @@ const SYMBOL_TO_THEMES: Record<string, string[]> = {
   // 電力インフラ (AI データセンター需要)
   VRT: ['power_infrastructure', 'ai'],
   PWR: ['power_infrastructure'],
-  // 量子コンピュータ
+  // 量子関連
   IONQ: ['quantum', 'quantum_computer'],
   RGTI: ['quantum', 'quantum_computer'],
   QBTS: ['quantum', 'quantum_computer'],
