@@ -105,6 +105,18 @@ export function useAssignTodaiTag() {
   });
 }
 
+export function useSetLeverage() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ securityId, leverage }: { securityId: string; leverage: number }) =>
+      apiFetch<{ ok: boolean }>('/api/todai/leverage', {
+        method: 'PUT',
+        body: JSON.stringify({ securityId, leverage }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['todai'] }),
+  });
+}
+
 export function useRunNow() {
   const qc = useQueryClient();
   return useMutation({

@@ -709,10 +709,27 @@ await fastify.register(fastifyStatic, {
   - `TAILSCALE_IP=127.0.0.1` で bind、`tailscale serve` が HTTPS プロキシ
   - PWA `apiFetch` は Endpoint 未設定 = 同一オリジン (relative URL) フォールバック
 - [x] **テーマタグ機能** (半導体/AI/量子/宇宙/レアアース 等の many-to-many タグ + 自動タグ付け)
+  - 「量子コンピュータ」→「量子関連」にリネーム済み (slug は quantum_computer のまま)
 - [x] **PWA オフライン対応** ([commit 5d5facd])
   - `@tanstack/react-query-persist-client` + `idb-keyval` で React Query キャッシュを IndexedDB に 24h 永続化
   - Workbox `runtimeCaching` で `/api/*` を NetworkFirst (5s timeout → SW キャッシュ)
   - `SyncIndicator` にオフライン/キャッシュ表示モード追加 (CloudOff アイコン + `(cache)` バッジ)
+- [x] **前日比表示** (Dashboard 総資産 / Holdings 銘柄別 / Categories テーマ別)
+  - `/api/holdings`・`/api/categories` に `prevTotalValueJpy`・`prevCapturedDate` 追加
+  - 「今日の紐付け × 前日価格」で算出 (市場変動のみ反映、タグ変更の影響を除外)
+- [x] **Holdings モバイル対応 + 取得単価** (FX も個別株と同形式)
+  - デスクトップ=テーブル / モバイル=カードレイアウト (`hidden md:block` / `md:hidden`)
+  - 全体の加重平均取得単価 + 口座別取得単価 (投信は ×10,000 = 基準価額/万口 換算)
+- [x] **「東大」ページ** ([apps/pwa/src/pages/Todai.tsx](../../apps/pwa/src/pages/Todai.tsx)) — 1銘柄=1タグの排他グルーピング
+  - 既存 `Category(kind='todai')` + `parentId` で **2階層タグ** (大カテゴリ/小カテゴリ)、`SecurityCategory(weight=1)` で 1 銘柄 1 リンク強制 (スキーマ流用、3階層は拒否)
+  - `/api/todai`: 集計(内側=大/外側=小) + タグ CRUD + 割当 + レバレッジ更新。大カテゴリ削除は子・割当を cascade
+  - 現金含む全資産対象。**二重ドーナツ** (内側=大/外側=小・総資産比)。ラベルは d3 式の左右カラム衝突回避で配置 (横方向 leader)
+  - 資産一覧は大カテゴリ別グループ表示 (未分類は最下部)、`<select>` でインライン割当 (PWA から操作可)
+  - 画像の分類体系を適用済み (高確度28銘柄。残り36銘柄は未分類で手動割当待ち)
+- [x] **レバレッジ** ([commit 待ち] migration `add_security_leverage`)
+  - `Security.leverage` (現物=1 / ブル=正 / ベア=負)。名前から自動判定で投入 (SOXL=3, SBI日本株4.3ブル=4.3, MVLL/ARMG/NUGT/1570=2)
+  - 東大の資産一覧に現物/Xブル/Xベア表示 + 数値入力で手動修正
+  - **レバレッジ補正版ドーナツ**: 各銘柄を |倍率|×評価額 で集計 (タグ別配分と同構造・同順・同色)。**比較表**で非レバ→レバ込の%差を表示し増加を赤▲で強調
 
 ### 完了 (運用)
 
@@ -740,6 +757,13 @@ await fastify.register(fastifyStatic, {
   - 必要なのは: `/api/history/holding?symbol=...` エンドポイント + [Holdings.tsx](../../apps/pwa/src/pages/Holdings.tsx) の銘柄行クリック → 個別グラフ画面
   - 描画候補: (a) 評価額推移 (b) 数量推移 (c) 単価推移
 - [ ] **履歴データの遡及不可**: 5/24 以前のデータは開発中の DB 作り直しで消滅。5/25 以降は capturedDate ベースの日次 upsert で正常に積み上がる
+- [ ] **東大タグ: 未分類36銘柄** の手動割当待ち (画像の見えていない行 = 個別株中心)。タグ階層は作成済みなのでドロップダウンで選ぶだけ
+- [ ] **レバレッジ手動確認**: 自動判定は名前ベースのため、レバ銘柄は東大ページで倍率を確認・修正推奨
+
+### UI ルール (CLAUDE.md に記載)
+
+- 円グラフは PC・スマホ問わず必ず各要素の % を表示する (%なしの円グラフは禁止)
+- 増減の強調色: **増加=赤 / 減少=緑** (東大の比較表 DeltaCell)
 
 ### ファイル配置メモ
 

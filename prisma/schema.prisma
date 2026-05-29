@@ -51,6 +51,8 @@ model Security {
   region     String?  // 'jp' | 'us' | 'hk' | 'cn' | 'eu' | 'em' | 'global' | 'other'
   sector     String?  // GICS sector level 1 (例 'Information Technology')
   industry   String?  // GICS industry (例 'Semiconductors')
+  // レバレッジ倍率。現物=1, ブル=正 (3倍ブル=3), ベア=負 (3倍ベア=-3)
+  leverage   Float    @default(1)
   tags       String   @default("[]")
   meta       String   @default("{}")
   createdAt  DateTime @default(now())

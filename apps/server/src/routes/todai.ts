@@ -51,6 +51,7 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       assetClass: string;
       valueJpy: number;
       tagId: string | null;
+      leverage: number;
     }
     const secMap = new Map<string, SecAgg>();
     for (const hs of snapshots) {
@@ -66,6 +67,7 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
           assetClass: sec.assetClass,
           valueJpy: 0,
           tagId: todaiLink?.categoryId ?? null,
+          leverage: sec.leverage,
         };
         secMap.set(sec.id, agg);
       }
@@ -83,6 +85,7 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
         valueJpy: a.valueJpy,
         ratio: totalJpy > 0 ? a.valueJpy / totalJpy : 0,
         tagId: a.tagId,
+        leverage: a.leverage,
       }))
       .sort((a, b) => b.valueJpy - a.valueJpy);
 
@@ -244,6 +247,27 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
         data: { securityId, categoryId: tagId, weight: 1, source: 'user' },
       });
     }
+    return { ok: true };
+  });
+
+  // 銘柄のレバレッジ倍率を更新 (現物=1, ブル=正, ベア=負)
+  const LeverageBody = z.object({
+    securityId: z.string().min(1),
+    leverage: z.number().finite(),
+  });
+  app.put('/api/todai/leverage', async (req, reply) => {
+    const parsed = LeverageBody.safeParse(req.body ?? {});
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'invalid_body', detail: parsed.error.format() });
+    }
+    const sec = await prisma.security.findUnique({ where: { id: parsed.data.securityId } });
+    if (!sec) {
+      return reply.code(404).send({ error: 'security_not_found' });
+    }
+    await prisma.security.update({
+      where: { id: parsed.data.securityId },
+      data: { leverage: parsed.data.leverage },
+    });
     return { ok: true };
   });
 }

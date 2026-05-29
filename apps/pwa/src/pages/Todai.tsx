@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useEffect, useRef, Fragment } from 'react';
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts';
 import {
   useTodai,
@@ -6,15 +6,47 @@ import {
   useRenameTodaiTag,
   useDeleteTodaiTag,
   useAssignTodaiTag,
+  useSetLeverage,
 } from '../api/queries.js';
 import { pickColor } from '../lib/colors.js';
-import { ASSET_CLASS_LABELS, type AssetClass, type TodaiTag } from '@asset-tracker/shared';
+import {
+  ASSET_CLASS_LABELS,
+  type AssetClass,
+  type TodaiTag,
+  type TodaiAsset,
+  type TodaiBigGroup,
+} from '@asset-tracker/shared';
 import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
 
 const GRAY = '#94a3b8';
 
 function formatJpy(v: number): string {
   return `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
+}
+
+// 640px 以下をモバイル扱い
+function useIsMobile(): boolean {
+  const [mobile, setMobile] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(max-width: 640px)').matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 640px)');
+    const h = (): void => setMobile(mq.matches);
+    mq.addEventListener('change', h);
+    return () => mq.removeEventListener('change', h);
+  }, []);
+  return mobile;
+}
+
+// レバレッジ倍率 → 表示ラベル。現物=1, ブル=正, ベア=負
+function leverageLabel(f: number): string {
+  if (f === 1) return '現物';
+  if (f > 0) return `${f}倍ブル`;
+  return `${Math.abs(f)}倍ベア`;
+}
+
+function shortenName(name: string): string {
+  return name.length <= 8 ? name : name.slice(0, 8) + '…';
 }
 
 // hex を白方向へ amount(0..1) ブレンド
@@ -33,6 +65,7 @@ export function Todai() {
   const renameTag = useRenameTodaiTag();
   const deleteTag = useDeleteTodaiTag();
   const assign = useAssignTodaiTag();
+  const setLev = useSetLeverage();
 
   const bigCats = useMemo(
     () => (data?.tags ?? []).filter((t) => t.parentId == null),
@@ -41,23 +74,27 @@ export function Todai() {
   const childrenOf = (id: string): TodaiTag[] =>
     (data?.tags ?? []).filter((t) => t.parentId === id);
 
-  // 内側 (大) / 外側 (小) リングのデータ。配列順を揃えてリングを整合させる。
-  const { innerData, outerData } = useMemo(() => {
-    const inner: Array<{ name: string; value: number; ratio: number; color: string }> = [];
-    const outer: Array<{ name: string; value: number; ratio: number; color: string }> = [];
-    (data?.bigGroups ?? []).forEach((b, bi) => {
-      const base = b.tagId == null ? GRAY : pickColor(bi);
-      inner.push({ name: b.name, value: b.valueJpy, ratio: b.ratio, color: base });
-      b.children.forEach((c, ci) => {
-        outer.push({
-          name: c.name,
-          value: c.valueJpy,
-          ratio: c.ratio,
-          color: b.tagId == null ? GRAY : lighten(base, Math.min(0.55, 0.12 + ci * 0.18)),
-        });
-      });
-    });
-    return { innerData: inner, outerData: outer };
+  // 資産一覧を大カテゴリ別にグルーピング (未分類は最下部)。
+  const tagById = useMemo(
+    () => new Map((data?.tags ?? []).map((t) => [t.id, t])),
+    [data],
+  );
+  const bigIdOf = (tagId: string | null): string | null => {
+    if (!tagId) return null;
+    const t = tagById.get(tagId);
+    return t ? t.parentId ?? t.id : null;
+  };
+  // bigGroups は value 降順。未分類(null) を末尾へ。
+  const orderedBigGroups = useMemo(() => {
+    const gs = data?.bigGroups ?? [];
+    return [...gs.filter((g) => g.tagId != null), ...gs.filter((g) => g.tagId == null)];
+  }, [data]);
+
+  // レバレッジ補正版 bigGroups: 各銘柄を |倍率|×評価額 で集計。
+  // 並び順・色を非レバ版に揃える (どこが増えたか比較しやすく)。
+  const leveragedBigGroups = useMemo(() => {
+    const lev = computeLeveragedBigGroups(data?.assets ?? [], data?.tags ?? []);
+    return reorderToMatch(lev, data?.bigGroups ?? []);
   }, [data]);
 
   if (isLoading) return <p className="text-[var(--color-text-muted)]">読み込み中...</p>;
@@ -74,108 +111,61 @@ export function Todai() {
         </span>
       </div>
 
-      {/* 二重ドーナツ */}
-      {innerData.length > 0 && (
-        <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)]">
-          <h3 className="text-sm font-semibold text-[var(--color-text-muted)] mb-2">
-            タグ別配分 (内側=大カテゴリ / 外側=小カテゴリ・総資産比)
-          </h3>
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart margin={{ top: 10, right: 10, bottom: 10, left: 10 }}>
-                <Pie
-                  data={innerData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius="32%"
-                  outerRadius="55%"
-                  startAngle={90}
-                  endAngle={-270}
-                  isAnimationActive={false}
-                >
-                  {innerData.map((d, i) => (
-                    <Cell key={i} fill={d.color} />
-                  ))}
-                </Pie>
-                <Pie
-                  data={outerData}
-                  dataKey="value"
-                  nameKey="name"
-                  cx="50%"
-                  cy="50%"
-                  innerRadius="58%"
-                  outerRadius="78%"
-                  startAngle={90}
-                  endAngle={-270}
-                  paddingAngle={0.5}
-                  isAnimationActive={false}
-                >
-                  {outerData.map((d, i) => (
-                    <Cell key={i} fill={d.color} />
-                  ))}
-                </Pie>
-                <Tooltip
-                  formatter={(v: number, _n, p) => {
-                    const ratio = (p.payload as { ratio: number }).ratio;
-                    return [`${formatJpy(v)} (${(ratio * 100).toFixed(1)}%)`, ''];
-                  }}
-                />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
+      {/* 2つのドーナツを PC では横並び (比較しやすく) / スマホは縦積み */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <TagDonut bigGroups={data.bigGroups} title="タグ別配分 (内側=大 / 外側=小・総資産比)" />
+        <TagDonut bigGroups={leveragedBigGroups} title="レバレッジ補正版 (実効エクスポージャー)" />
+      </div>
 
-          {/* 階層レジェンド */}
-          <ul className="mt-2 text-xs space-y-1">
-            {data.bigGroups.map((b, bi) => {
-              const base = b.tagId == null ? GRAY : pickColor(bi);
-              return (
-                <li key={b.tagId ?? 'untagged'}>
-                  <div className="flex items-center gap-2 font-medium">
-                    <span
-                      className="w-3 h-3 rounded-sm flex-shrink-0"
-                      style={{ background: base }}
-                    />
-                    <span className="flex-1 truncate">{b.name}</span>
-                    <span className="tabular-nums">{formatJpy(b.valueJpy)}</span>
-                    <span className="tabular-nums text-[var(--color-text-muted)] w-14 text-right">
-                      {(b.ratio * 100).toFixed(1)}%
+      {/* 非レバ vs レバ込 の比較表 (順序統一・増加を強調) */}
+      <ComparisonTable base={data.bigGroups} lev={leveragedBigGroups} />
+
+      {/* 資産別タグ付け (大カテゴリ別にグループ化、未分類は最下部) */}
+      <section>
+        <h2 className="text-lg font-bold text-[var(--color-primary)] border-b-2 border-[var(--color-primary)] pb-1 mb-3">
+          資産別タグ付け
+        </h2>
+        <div className="space-y-5">
+          {orderedBigGroups.map((bg) => {
+            const groupAssets = data.assets
+              .filter((a) => bigIdOf(a.tagId) === bg.tagId)
+              .sort((x, y) => y.valueJpy - x.valueJpy);
+            if (groupAssets.length === 0) return null;
+            return (
+              <div key={bg.tagId ?? 'untagged'}>
+                <div className="flex items-baseline justify-between mb-2 px-1 text-sm border-b border-[var(--color-border)] pb-1">
+                  <span className="font-semibold">
+                    {bg.name}{' '}
+                    <span className="text-[var(--color-text-muted)] font-normal ml-1">
+                      {groupAssets.length} 件
                     </span>
-                  </div>
-                  {b.children.length > 1 || (b.children[0] && b.children[0].tagId !== b.tagId) ? (
-                    <ul className="ml-5 mt-0.5 space-y-0.5">
-                      {b.children.map((c, ci) => (
-                        <li
-                          key={c.tagId ?? 'direct'}
-                          className="flex items-center gap-2 text-[var(--color-text-muted)]"
-                        >
-                          <span
-                            className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
-                            style={{
-                              background:
-                                b.tagId == null
-                                  ? GRAY
-                                  : lighten(base, Math.min(0.55, 0.12 + ci * 0.18)),
-                            }}
-                          />
-                          <span className="flex-1 truncate">{c.name}</span>
-                          <span className="tabular-nums">{formatJpy(c.valueJpy)}</span>
-                          <span className="tabular-nums w-14 text-right">
-                            {(c.ratio * 100).toFixed(1)}%
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+                  </span>
+                  <span className="tabular-nums text-[var(--color-text-muted)]">
+                    {formatJpy(bg.valueJpy)} ({(bg.ratio * 100).toFixed(1)}%)
+                  </span>
+                </div>
+                <div className="space-y-2">
+                  {groupAssets.map((a) => (
+                    <AssetRow
+                      key={a.securityId}
+                      asset={a}
+                      bigCats={bigCats}
+                      childrenOf={childrenOf}
+                      disabled={assign.isPending}
+                      onAssign={(tagId) => assign.mutate({ securityId: a.securityId, tagId })}
+                      onSetLeverage={(leverage) =>
+                        setLev.mutate({ securityId: a.securityId, leverage })
+                      }
+                    />
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      )}
+      </section>
 
-      {/* タグ管理 (2階層) */}
+      {/* タグ管理 (2階層) — 末尾に配置 */}
       <TagManager
         bigCats={bigCats}
         childrenOf={childrenOf}
@@ -184,57 +174,90 @@ export function Todai() {
         onDelete={(id) => deleteTag.mutate(id)}
         creating={createTag.isPending}
       />
+    </div>
+  );
+}
 
-      {/* 資産別タグ付け */}
-      <section>
-        <h2 className="text-lg font-bold text-[var(--color-primary)] border-b-2 border-[var(--color-primary)] pb-1 mb-3">
-          資産別タグ付け
-        </h2>
-        <div className="space-y-2">
-          {data.assets.map((a) => (
-            <div
-              key={a.securityId}
-              className="bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-lg p-3 flex items-center gap-3 flex-wrap"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-mono text-[var(--color-text-muted)]">
-                  {a.symbol} · {ASSET_CLASS_LABELS[a.assetClass as AssetClass] ?? a.assetClass}
-                </div>
-                <div className="font-medium truncate">{a.name}</div>
-              </div>
-              <div className="text-right tabular-nums whitespace-nowrap">
-                <div className="font-semibold">{formatJpy(a.valueJpy)}</div>
-                <div className="text-xs text-[var(--color-text-muted)]">
-                  {(a.ratio * 100).toFixed(2)}%
-                </div>
-              </div>
-              <select
-                className="px-2 py-1.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-sm min-w-36"
-                value={a.tagId ?? ''}
-                disabled={assign.isPending}
-                onChange={(e) =>
-                  assign.mutate({ securityId: a.securityId, tagId: e.target.value || null })
-                }
-              >
-                <option value="">未分類</option>
-                {bigCats.map((big) => {
-                  const kids = childrenOf(big.id);
-                  return (
-                    <optgroup key={big.id} label={big.name}>
-                      <option value={big.id}>{big.name}（大分類のみ）</option>
-                      {kids.map((k) => (
-                        <option key={k.id} value={k.id}>
-                          　{k.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  );
-                })}
-              </select>
-            </div>
-          ))}
+function AssetRow({
+  asset: a,
+  bigCats,
+  childrenOf,
+  disabled,
+  onAssign,
+  onSetLeverage,
+}: {
+  asset: TodaiAsset;
+  bigCats: TodaiTag[];
+  childrenOf: (id: string) => TodaiTag[];
+  disabled: boolean;
+  onAssign: (tagId: string | null) => void;
+  onSetLeverage: (leverage: number) => void;
+}) {
+  const [levText, setLevText] = useState(String(a.leverage));
+
+  function commitLev(): void {
+    const v = Number(levText);
+    if (Number.isFinite(v) && v !== a.leverage) onSetLeverage(v);
+  }
+
+  return (
+    <div className="bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-lg p-3 flex items-center gap-3 flex-wrap sm:flex-nowrap">
+      {/* 銘柄名 (可変幅) */}
+      <div className="min-w-0 flex-1">
+        <div className="text-xs font-mono text-[var(--color-text-muted)]">
+          {a.symbol} · {ASSET_CLASS_LABELS[a.assetClass as AssetClass] ?? a.assetClass}
         </div>
-      </section>
+        <div className="font-medium truncate">{a.name}</div>
+      </div>
+
+      {/* レバレッジ列 (固定幅) */}
+      <div className="w-20 shrink-0 flex flex-col items-center">
+        <span
+          className={`text-xs ${a.leverage === 1 ? 'text-[var(--color-text-muted)]' : 'text-[var(--color-accent)] font-medium'}`}
+        >
+          {leverageLabel(a.leverage)}
+        </span>
+        <input
+          type="number"
+          step="0.1"
+          className="w-16 mt-0.5 px-1 py-0.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-xs text-right tabular-nums"
+          value={levText}
+          disabled={disabled}
+          onChange={(e) => setLevText(e.target.value)}
+          onBlur={commitLev}
+          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+          title="現物=1, 3倍ブル=3, 3倍ベア=-3"
+        />
+      </div>
+
+      {/* 評価額列 (固定幅) */}
+      <div className="w-28 shrink-0 text-right tabular-nums">
+        <div className="font-semibold">{formatJpy(a.valueJpy)}</div>
+        <div className="text-xs text-[var(--color-text-muted)]">{(a.ratio * 100).toFixed(2)}%</div>
+      </div>
+
+      {/* タグ選択列 (固定幅) */}
+      <select
+        className="w-40 shrink-0 px-2 py-1.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-sm"
+        value={a.tagId ?? ''}
+        disabled={disabled}
+        onChange={(e) => onAssign(e.target.value || null)}
+      >
+        <option value="">未分類</option>
+        {bigCats.map((big) => {
+          const kids = childrenOf(big.id);
+          return (
+            <optgroup key={big.id} label={big.name}>
+              <option value={big.id}>{big.name}（大分類のみ）</option>
+              {kids.map((k) => (
+                <option key={k.id} value={k.id}>
+                  　{k.name}
+                </option>
+              ))}
+            </optgroup>
+          );
+        })}
+      </select>
     </div>
   );
 }
@@ -401,5 +424,375 @@ function TagManager({
         })}
       </ul>
     </section>
+  );
+}
+
+// 二重ドーナツ (内側=大カテゴリ / 外側=小カテゴリ) + 階層レジェンド。
+// タグ別配分とレバレッジ補正版で共用。
+function TagDonut({ bigGroups, title }: { bigGroups: TodaiBigGroup[]; title: string }) {
+  const isMobile = useIsMobile();
+  const RAD = Math.PI / 180;
+  const LABEL_THRESHOLD = 0.03;
+
+  const { innerData, outerData } = useMemo(() => {
+    const inner: Array<{ name: string; value: number; ratio: number; color: string }> = [];
+    const outer: Array<{ name: string; value: number; ratio: number; color: string }> = [];
+    bigGroups.forEach((b, bi) => {
+      const base = b.tagId == null ? GRAY : pickColor(bi);
+      inner.push({ name: b.name, value: b.valueJpy, ratio: b.ratio, color: base });
+      b.children.forEach((c, ci) => {
+        outer.push({
+          name: c.name,
+          value: c.valueJpy,
+          ratio: c.ratio,
+          color: b.tagId == null ? GRAY : lighten(base, Math.min(0.55, 0.12 + ci * 0.18)),
+        });
+      });
+    });
+    return { innerData: inner, outerData: outer };
+  }, [bigGroups]);
+
+  // ラベル配置を pixel 確定後に1度だけ計算してキャッシュ (衝突回避)。
+  // 各ラベルはスライスの自然な高さ付近に置き、重なる分だけ縦にずらす → 横に伸びる leader。
+  const layoutCache = useRef<{ key: string; map: Map<number, { side: 'L' | 'R'; y: number }> } | null>(
+    null,
+  );
+
+  function getLayout(cx: number, cy: number, outerR: number): Map<number, { side: 'L' | 'R'; y: number }> {
+    const key = `${cx}|${cy}|${outerR}|${innerData.map((d) => d.value).join(',')}`;
+    if (layoutCache.current?.key === key) return layoutCache.current.map;
+
+    const total = innerData.reduce((s, d) => s + d.value, 0) || 1;
+    let ang = 90;
+    const mids = innerData.map((d) => {
+      const span = (d.value / total) * -360;
+      const mid = ang + span / 2;
+      ang += span;
+      return mid;
+    });
+    const r1 = outerR * 1.5; // ラベル基準の半径
+    const minGap = isMobile ? 24 : 28;
+    type P = { i: number; side: 'L' | 'R'; y: number };
+    const pts: P[] = [];
+    innerData.forEach((d, i) => {
+      if (d.ratio < LABEL_THRESHOLD) return;
+      const sin = Math.sin(-mids[i]! * RAD);
+      const cos = Math.cos(-mids[i]! * RAD);
+      pts.push({ i, side: cos >= 0 ? 'R' : 'L', y: cy + r1 * sin });
+    });
+
+    const map = new Map<number, { side: 'L' | 'R'; y: number }>();
+    const topBound = cy - outerR * 1.7;
+    const botBound = cy + outerR * 1.7;
+    (['L', 'R'] as const).forEach((side) => {
+      const arr = pts.filter((p) => p.side === side).sort((a, b) => a.y - b.y);
+      // 上から押し下げて最小間隔を確保
+      for (let i = 1; i < arr.length; i++) {
+        if (arr[i]!.y < arr[i - 1]!.y + minGap) arr[i]!.y = arr[i - 1]!.y + minGap;
+      }
+      // 下にはみ出たら全体を上シフト
+      const overflow = (arr[arr.length - 1]?.y ?? 0) - botBound;
+      if (overflow > 0) for (const p of arr) p.y -= overflow;
+      // 上にはみ出たらクランプ
+      if ((arr[0]?.y ?? 0) < topBound) {
+        const d = topBound - arr[0]!.y;
+        for (const p of arr) p.y += d;
+      }
+      for (const p of arr) map.set(p.i, { side, y: p.y });
+    });
+
+    layoutCache.current = { key, map };
+    return map;
+  }
+
+  function renderLabel(props: unknown): React.ReactNode {
+    const p = props as {
+      cx: number;
+      cy: number;
+      midAngle: number;
+      outerRadius: number;
+      index: number;
+      name: string;
+      payload: { ratio: number };
+    };
+    const meta = getLayout(p.cx, p.cy, p.outerRadius).get(p.index);
+    if (!meta) return null;
+    const cos = Math.cos(-p.midAngle * RAD);
+    const sin = Math.sin(-p.midAngle * RAD);
+    const dir = meta.side === 'R' ? 1 : -1;
+    // 外側リング外縁から radial に少し出し、横方向にラベル列へ
+    const p0x = p.cx + p.outerRadius * 1.42 * cos;
+    const p0y = p.cy + p.outerRadius * 1.42 * sin;
+    const elbowX = p.cx + dir * p.outerRadius * 1.56;
+    const colX = p.cx + dir * p.outerRadius * 1.72;
+    const textX = colX + dir * 4;
+    const anchor = meta.side === 'R' ? 'start' : 'end';
+    return (
+      <g>
+        <path
+          d={`M${p0x},${p0y}L${elbowX},${meta.y}L${colX},${meta.y}`}
+          stroke="var(--color-text-muted)"
+          fill="none"
+          strokeWidth={1}
+        />
+        <circle cx={colX} cy={meta.y} r={2} fill="var(--color-text-muted)" stroke="none" />
+        <text
+          x={textX}
+          y={meta.y}
+          textAnchor={anchor}
+          dominantBaseline="middle"
+          fontSize={isMobile ? 10 : 11}
+          fill="var(--color-text)"
+        >
+          <tspan x={textX} dy="-0.45em">
+            {shortenName(p.name)}
+          </tspan>
+          <tspan x={textX} dy="1.2em" className="tabular-nums">
+            {(p.payload.ratio * 100).toFixed(1)}%
+          </tspan>
+        </text>
+      </g>
+    );
+  }
+
+  if (innerData.length === 0) return null;
+
+  return (
+    <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)]">
+      <h3 className="text-sm font-semibold text-[var(--color-text-muted)] mb-2">{title}</h3>
+      <div className="h-72 sm:h-96">
+        <ResponsiveContainer width="100%" height="100%">
+          {/* ラベルは左右カラムに動的配置。余白は左右のみ確保し、ドーナツを大きく */}
+          <PieChart
+            margin={
+              isMobile
+                ? { top: 8, right: 58, bottom: 8, left: 58 }
+                : { top: 12, right: 96, bottom: 12, left: 96 }
+            }
+          >
+            <Pie
+              data={innerData}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius="42%"
+              outerRadius="62%"
+              startAngle={90}
+              endAngle={-270}
+              isAnimationActive={false}
+              labelLine={false}
+              label={renderLabel}
+            >
+              {innerData.map((d, i) => (
+                <Cell key={i} fill={d.color} />
+              ))}
+            </Pie>
+            <Pie
+              data={outerData}
+              dataKey="value"
+              nameKey="name"
+              cx="50%"
+              cy="50%"
+              innerRadius="65%"
+              outerRadius="86%"
+              startAngle={90}
+              endAngle={-270}
+              paddingAngle={0.5}
+              isAnimationActive={false}
+            >
+              {outerData.map((d, i) => (
+                <Cell key={i} fill={d.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              formatter={(v: number, _n, p) => {
+                const ratio = (p.payload as { ratio: number }).ratio;
+                return [`${formatJpy(v)} (${(ratio * 100).toFixed(1)}%)`, ''];
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// レバレッジ補正版 bigGroups を assets から算出 (各銘柄 |倍率|×評価額)。
+// API の bigGroups と同じグルーピングロジック。
+function computeLeveragedBigGroups(
+  assets: TodaiAsset[],
+  tags: TodaiTag[],
+): TodaiBigGroup[] {
+  const tagById = new Map(tags.map((t) => [t.id, t]));
+  const nameById = new Map(tags.map((t) => [t.id, t.name]));
+  const bigIdOf = (tagId: string | null): string | null =>
+    tagId ? tagById.get(tagId)?.parentId ?? tagId : null;
+
+  const total = assets.reduce((s, a) => s + Math.abs(a.leverage) * a.valueJpy, 0);
+
+  const bigMap = new Map<
+    string | null,
+    { value: number; leaves: Map<string | null, { value: number; count: number }> }
+  >();
+  for (const a of assets) {
+    const eff = Math.abs(a.leverage) * a.valueJpy;
+    if (eff <= 0) continue;
+    const bigKey = a.tagId == null ? null : bigIdOf(a.tagId);
+    const leafKey = a.tagId;
+    let big = bigMap.get(bigKey);
+    if (!big) {
+      big = { value: 0, leaves: new Map() };
+      bigMap.set(bigKey, big);
+    }
+    big.value += eff;
+    const leaf = big.leaves.get(leafKey) ?? { value: 0, count: 0 };
+    leaf.value += eff;
+    leaf.count += 1;
+    big.leaves.set(leafKey, leaf);
+  }
+
+  const leafName = (bigKey: string | null, leafKey: string | null): string => {
+    if (leafKey == null) return bigKey == null ? '未分類' : '（大分類のみ）';
+    if (leafKey === bigKey) return '（大分類のみ）';
+    return nameById.get(leafKey) ?? '(不明なタグ)';
+  };
+
+  return Array.from(bigMap.entries())
+    .map(([bigKey, big]) => ({
+      tagId: bigKey,
+      name: bigKey == null ? '未分類' : nameById.get(bigKey) ?? '(不明なタグ)',
+      valueJpy: big.value,
+      ratio: total > 0 ? big.value / total : 0,
+      children: Array.from(big.leaves.entries())
+        .map(([leafKey, leaf]) => ({
+          tagId: leafKey,
+          name: leafName(bigKey, leafKey),
+          valueJpy: leaf.value,
+          ratio: total > 0 ? leaf.value / total : 0,
+          count: leaf.count,
+        }))
+        .sort((a, b) => b.valueJpy - a.valueJpy),
+    }))
+    .sort((a, b) => b.valueJpy - a.valueJpy);
+}
+
+// lev の並び順・子順を base に揃える (色と位置を一致させ比較しやすく)。
+function reorderToMatch(lev: TodaiBigGroup[], base: TodaiBigGroup[]): TodaiBigGroup[] {
+  const bigIdx = new Map(base.map((g, i) => [g.tagId, i]));
+  const childIdx = new Map(
+    base.map((g) => [g.tagId, new Map(g.children.map((c, i) => [c.tagId, i]))]),
+  );
+  return [...lev]
+    .sort((a, b) => (bigIdx.get(a.tagId) ?? 999) - (bigIdx.get(b.tagId) ?? 999))
+    .map((g) => {
+      const ci = childIdx.get(g.tagId);
+      if (!ci) return g;
+      return {
+        ...g,
+        children: [...g.children].sort(
+          (a, b) => (ci.get(a.tagId) ?? 999) - (ci.get(b.tagId) ?? 999),
+        ),
+      };
+    });
+}
+
+// 増減セル: lev 比率を表示し、非レバ比率より増えていれば緑▲ / 減れば赤▼。
+function DeltaCell({ baseRatio, levRatio }: { baseRatio: number; levRatio: number }) {
+  const up = levRatio > baseRatio + 0.0005;
+  const down = levRatio < baseRatio - 0.0005;
+  // 増加=赤で強調 / 減少=緑
+  const cls = up
+    ? 'text-[var(--color-negative)] font-semibold'
+    : down
+      ? 'text-[var(--color-positive)]'
+      : 'text-[var(--color-text-muted)]';
+  return (
+    <span className={`tabular-nums ${cls}`}>
+      {(levRatio * 100).toFixed(1)}%{up ? ' ▲' : down ? ' ▼' : ''}
+    </span>
+  );
+}
+
+// 非レバ vs レバ込 の配分比較表。base 順で並べ、増加カテゴリを強調。
+function ComparisonTable({ base, lev }: { base: TodaiBigGroup[]; lev: TodaiBigGroup[] }) {
+  const levBig = new Map(lev.map((g) => [g.tagId, g]));
+  if (base.length === 0) return null;
+  return (
+    <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)]">
+      <h3 className="text-sm font-semibold text-[var(--color-text-muted)] mb-2">
+        配分比較 (非レバ → レバ込 / 増加を強調)
+      </h3>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs sm:text-sm">
+          <thead className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+            <tr>
+              <th className="py-1.5 pr-2">カテゴリ</th>
+              <th className="py-1.5 px-2 text-right w-20">非レバ</th>
+              <th className="py-1.5 pl-2 text-right w-24">レバ込</th>
+            </tr>
+          </thead>
+          <tbody>
+            {base.map((b, bi) => {
+              const lg = levBig.get(b.tagId);
+              const levRatio = lg?.ratio ?? 0;
+              const levChild = new Map((lg?.children ?? []).map((c) => [c.tagId, c]));
+              const color = b.tagId == null ? GRAY : pickColor(bi);
+              const showChildren =
+                b.children.length > 1 || (b.children[0] && b.children[0].tagId !== b.tagId);
+              return (
+                <Fragment key={b.tagId ?? 'untagged'}>
+                  <tr className="border-t border-[var(--color-border)] font-medium">
+                    <td className="py-1.5 pr-2">
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className="w-3 h-3 rounded-sm flex-shrink-0"
+                          style={{ background: color }}
+                        />
+                        {b.name}
+                      </span>
+                    </td>
+                    <td className="py-1.5 px-2 text-right tabular-nums text-[var(--color-text-muted)]">
+                      {(b.ratio * 100).toFixed(1)}%
+                    </td>
+                    <td className="py-1.5 pl-2 text-right">
+                      <DeltaCell baseRatio={b.ratio} levRatio={levRatio} />
+                    </td>
+                  </tr>
+                  {showChildren &&
+                    b.children.map((c, ci) => {
+                      const lc = levChild.get(c.tagId);
+                      return (
+                        <tr key={c.tagId ?? 'direct'} className="text-[var(--color-text-muted)]">
+                          <td className="py-1 pr-2 pl-5">
+                            <span className="inline-flex items-center gap-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
+                                style={{
+                                  background:
+                                    b.tagId == null
+                                      ? GRAY
+                                      : lighten(color, Math.min(0.55, 0.12 + ci * 0.18)),
+                                }}
+                              />
+                              {c.name}
+                            </span>
+                          </td>
+                          <td className="py-1 px-2 text-right tabular-nums">
+                            {(c.ratio * 100).toFixed(1)}%
+                          </td>
+                          <td className="py-1 pl-2 text-right">
+                            <DeltaCell baseRatio={c.ratio} levRatio={lc?.ratio ?? 0} />
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
