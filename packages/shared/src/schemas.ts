@@ -226,3 +226,53 @@ export const CategoriesResponseSchema = z.object({
   untagged: z.array(UntaggedSecuritySchema),
 });
 export type CategoriesResponse = z.infer<typeof CategoriesResponseSchema>;
+
+// /api/todai — 1銘柄=1タグの排他グルーピング (現金含む全資産)。
+// タグは2階層: parentId=null が大カテゴリ、parentId 指定が小カテゴリ。
+export const TodaiTagSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  sortOrder: z.number(),
+  parentId: z.string().nullable(),
+});
+export type TodaiTag = z.infer<typeof TodaiTagSchema>;
+
+// 円グラフ外側 (小カテゴリ or 大直接割当 or 未分類)
+export const TodaiLeafGroupSchema = z.object({
+  tagId: z.string().nullable(), // null = (大直下 or 未分類)
+  name: z.string(),
+  valueJpy: z.number(),
+  ratio: z.number(),
+  count: z.number(),
+});
+export type TodaiLeafGroup = z.infer<typeof TodaiLeafGroupSchema>;
+
+// 円グラフ内側 (大カテゴリ or 未分類) + その配下
+export const TodaiBigGroupSchema = z.object({
+  tagId: z.string().nullable(), // null = 未分類
+  name: z.string(),
+  valueJpy: z.number(),
+  ratio: z.number(),
+  children: z.array(TodaiLeafGroupSchema),
+});
+export type TodaiBigGroup = z.infer<typeof TodaiBigGroupSchema>;
+
+export const TodaiAssetSchema = z.object({
+  securityId: z.string(),
+  symbol: z.string(),
+  name: z.string(),
+  assetClass: z.string(),
+  valueJpy: z.number(),
+  ratio: z.number(),
+  tagId: z.string().nullable(),
+});
+export type TodaiAsset = z.infer<typeof TodaiAssetSchema>;
+
+export const TodaiResponseSchema = z.object({
+  capturedDate: z.string().nullable(),
+  totalJpy: z.number(),
+  tags: z.array(TodaiTagSchema),
+  bigGroups: z.array(TodaiBigGroupSchema),
+  assets: z.array(TodaiAssetSchema),
+});
+export type TodaiResponse = z.infer<typeof TodaiResponseSchema>;

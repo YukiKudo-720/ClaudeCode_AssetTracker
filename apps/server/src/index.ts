@@ -13,6 +13,7 @@ import { registerHoldingsRoutes } from './routes/holdings.js';
 import { registerAllocationRoutes } from './routes/allocation.js';
 import { registerHistoryRoutes } from './routes/history.js';
 import { registerCategoriesRoutes } from './routes/categories.js';
+import { registerTodaiRoutes } from './routes/todai.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PWA_DIST_PATH = path.resolve(__dirname, '..', '..', 'pwa', 'dist');
@@ -27,7 +28,7 @@ async function main(): Promise<void> {
     origin: true,
     credentials: false,
     allowedHeaders: ['Content-Type', 'Authorization'],
-    methods: ['GET', 'POST', 'OPTIONS'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
   // 認証不要 (生存確認のみ)
@@ -42,6 +43,7 @@ async function main(): Promise<void> {
     registerAllocationRoutes(instance);
     registerHistoryRoutes(instance);
     registerCategoriesRoutes(instance);
+    registerTodaiRoutes(instance);
   });
 
   // PWA を Fastify から静的配信 (本番モード)。

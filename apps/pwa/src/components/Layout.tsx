@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Wallet, TrendingUp, Tags, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Wallet, TrendingUp, Tags, GraduationCap, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react';
 import { SyncIndicator } from './SyncIndicator.js';
 
 const NAV = [
@@ -7,6 +7,7 @@ const NAV = [
   { to: '/accounts', label: '口座', icon: Wallet },
   { to: '/holdings', label: '銘柄', icon: TrendingUp },
   { to: '/categories', label: 'テーマ', icon: Tags },
+  { to: '/todai', label: '東大', icon: GraduationCap },
   { to: '/history', label: '履歴', icon: HistoryIcon },
   { to: '/settings', label: '設定', icon: SettingsIcon },
 ];

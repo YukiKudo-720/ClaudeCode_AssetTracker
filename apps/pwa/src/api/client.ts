@@ -37,14 +37,16 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   }
   // endpoint 未設定 = 同一オリジン (Tailscale serve 経由等) を使う (relative URL)
   const url = endpoint ? endpoint.replace(/\/$/, '') + path : path;
-  const res = await fetch(url, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
-  });
+  // Content-Type は body がある時のみ付与 (body 無し DELETE 等で
+  // Fastify の FST_ERR_CTP_EMPTY_JSON_BODY を避ける)
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    ...((init?.headers as Record<string, string> | undefined) ?? {}),
+  };
+  if (init?.body != null) {
+    headers['Content-Type'] = 'application/json';
+  }
+  const res = await fetch(url, { ...init, headers });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new ApiError(res.status, text || res.statusText);

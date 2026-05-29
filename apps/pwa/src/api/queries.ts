@@ -6,6 +6,8 @@ import type {
   HistoryTotalResponse,
   HoldingsResponse,
   ScrapeRunSummary,
+  TodaiResponse,
+  TodaiTag,
 } from '@asset-tracker/shared';
 import { apiFetch } from './client.js';
 
@@ -48,6 +50,58 @@ export function useCategories() {
   return useQuery({
     queryKey: ['categories'],
     queryFn: () => apiFetch<CategoriesResponse>('/api/categories'),
+  });
+}
+
+export function useTodai() {
+  return useQuery({
+    queryKey: ['todai'],
+    queryFn: () => apiFetch<TodaiResponse>('/api/todai'),
+  });
+}
+
+export function useCreateTodaiTag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ name, parentId }: { name: string; parentId?: string | null }) =>
+      apiFetch<TodaiTag>('/api/todai/tags', {
+        method: 'POST',
+        body: JSON.stringify({ name, parentId: parentId ?? null }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['todai'] }),
+  });
+}
+
+export function useRenameTodaiTag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      apiFetch<TodaiTag>(`/api/todai/tags/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['todai'] }),
+  });
+}
+
+export function useDeleteTodaiTag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch<{ ok: boolean }>(`/api/todai/tags/${id}`, { method: 'DELETE' }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['todai'] }),
+  });
+}
+
+export function useAssignTodaiTag() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ securityId, tagId }: { securityId: string; tagId: string | null }) =>
+      apiFetch<{ ok: boolean }>('/api/todai/assign', {
+        method: 'PUT',
+        body: JSON.stringify({ securityId, tagId }),
+      }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: ['todai'] }),
   });
 }
 
