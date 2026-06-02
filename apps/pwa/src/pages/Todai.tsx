@@ -697,8 +697,16 @@ function reorderToMatch(lev: TodaiBigGroup[], base: TodaiBigGroup[]): TodaiBigGr
     });
 }
 
-// 増減セル: lev 比率を表示し、非レバ比率より増えていれば緑▲ / 減れば赤▼。
-function DeltaCell({ baseRatio, levRatio }: { baseRatio: number; levRatio: number }) {
+// レバ込みセル: ¥ + % (PC=1行 / スマホ=2行)。非レバ比率より増えていれば赤▲ / 減れば緑▼。
+function DeltaCell({
+  baseRatio,
+  levRatio,
+  levValueJpy,
+}: {
+  baseRatio: number;
+  levRatio: number;
+  levValueJpy: number;
+}) {
   const up = levRatio > baseRatio + 0.0005;
   const down = levRatio < baseRatio - 0.0005;
   // 増加=赤で強調 / 減少=緑
@@ -708,9 +716,30 @@ function DeltaCell({ baseRatio, levRatio }: { baseRatio: number; levRatio: numbe
       ? 'text-[var(--color-positive)]'
       : 'text-[var(--color-text-muted)]';
   return (
-    <span className={`tabular-nums ${cls}`}>
-      {(levRatio * 100).toFixed(1)}%{up ? ' ▲' : down ? ' ▼' : ''}
-    </span>
+    <div
+      className={`tabular-nums ${cls} flex flex-col items-end sm:flex-row sm:items-center sm:gap-3 sm:justify-end`}
+    >
+      <span className="sm:w-28 sm:text-right">
+        ¥{levValueJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+      </span>
+      <span className="text-xs sm:text-sm sm:w-20 sm:text-right">
+        {(levRatio * 100).toFixed(1)}%{up ? ' ▲' : down ? ' ▼' : ''}
+      </span>
+    </div>
+  );
+}
+
+// 非レバセル: ¥ + % (PC=1行・サブ列で揃え / スマホ=2行)
+function BaseCell({ valueJpy, ratio }: { valueJpy: number; ratio: number }) {
+  return (
+    <div className="tabular-nums text-[var(--color-text-muted)] flex flex-col items-end sm:flex-row sm:items-center sm:gap-3 sm:justify-end">
+      <span className="sm:w-28 sm:text-right">
+        ¥{valueJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+      </span>
+      <span className="text-xs sm:text-sm sm:w-16 sm:text-right">
+        {(ratio * 100).toFixed(1)}%
+      </span>
+    </div>
   );
 }
 
@@ -728,8 +757,8 @@ function ComparisonTable({ base, lev }: { base: TodaiBigGroup[]; lev: TodaiBigGr
           <thead className="text-left text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
             <tr>
               <th className="py-1.5 pr-2">カテゴリ</th>
-              <th className="py-1.5 px-2 text-right w-20">非レバ</th>
-              <th className="py-1.5 pl-2 text-right w-24">レバ込</th>
+              <th className="py-1.5 px-2 text-right w-24 sm:w-48">非レバ</th>
+              <th className="py-1.5 pl-2 text-right w-24 sm:w-52">レバ込</th>
             </tr>
           </thead>
           <tbody>
@@ -752,11 +781,15 @@ function ComparisonTable({ base, lev }: { base: TodaiBigGroup[]; lev: TodaiBigGr
                         {b.name}
                       </span>
                     </td>
-                    <td className="py-1.5 px-2 text-right tabular-nums text-[var(--color-text-muted)]">
-                      {(b.ratio * 100).toFixed(1)}%
+                    <td className="py-1.5 px-2 text-right align-top">
+                      <BaseCell valueJpy={b.valueJpy} ratio={b.ratio} />
                     </td>
-                    <td className="py-1.5 pl-2 text-right">
-                      <DeltaCell baseRatio={b.ratio} levRatio={levRatio} />
+                    <td className="py-1.5 pl-2 text-right align-top">
+                      <DeltaCell
+                        baseRatio={b.ratio}
+                        levRatio={levRatio}
+                        levValueJpy={lg?.valueJpy ?? 0}
+                      />
                     </td>
                   </tr>
                   {showChildren &&
@@ -778,11 +811,15 @@ function ComparisonTable({ base, lev }: { base: TodaiBigGroup[]; lev: TodaiBigGr
                               {c.name}
                             </span>
                           </td>
-                          <td className="py-1 px-2 text-right tabular-nums">
-                            {(c.ratio * 100).toFixed(1)}%
+                          <td className="py-1 px-2 text-right align-top">
+                            <BaseCell valueJpy={c.valueJpy} ratio={c.ratio} />
                           </td>
-                          <td className="py-1 pl-2 text-right">
-                            <DeltaCell baseRatio={c.ratio} levRatio={lc?.ratio ?? 0} />
+                          <td className="py-1 pl-2 text-right align-top">
+                            <DeltaCell
+                              baseRatio={c.ratio}
+                              levRatio={lc?.ratio ?? 0}
+                              levValueJpy={lc?.valueJpy ?? 0}
+                            />
                           </td>
                         </tr>
                       );
