@@ -109,13 +109,27 @@ export function Todai() {
 
   return (
     <div className="space-y-6">
-      <div className="text-sm text-[var(--color-text-muted)] flex justify-between items-baseline flex-wrap gap-2">
+      <div className="text-sm text-[var(--color-text-muted)] flex justify-between items-start flex-wrap gap-2">
         <span>
           {data.tags.length} タグ / {data.assets.length} 資産 / 取得日 {data.capturedDate ?? '-'}
         </span>
-        <span className="text-base text-[var(--color-text)] tabular-nums font-medium">
-          総資産 {formatJpy(data.totalJpy)}
-        </span>
+        <div className="flex flex-col items-end gap-0.5 tabular-nums">
+          <span className="text-base text-[var(--color-text)] font-medium">
+            総資産 {formatJpy(data.totalJpy)}
+          </span>
+          <span className="text-xs">
+            実効 {formatJpy(totalEff)}{' '}
+            <span
+              className={
+                data.totalJpy > 0 && totalEff > data.totalJpy
+                  ? 'text-[var(--color-negative)] font-medium'
+                  : 'text-[var(--color-text-muted)]'
+              }
+            >
+              ({data.totalJpy > 0 ? ((totalEff / data.totalJpy) * 100).toFixed(1) : '0.0'}%)
+            </span>
+          </span>
+        </div>
       </div>
 
       {/* 2つのドーナツを PC では横並び (比較しやすく) / スマホは縦積み */}
@@ -142,7 +156,7 @@ export function Todai() {
               <div
                 key={bg.tagId ?? 'untagged'}
                 id={`todai-cat-${bg.tagId ?? 'untagged'}`}
-                className="scroll-mt-20"
+                className="scroll-mt-28"
               >
                 <div className="flex items-baseline justify-between mb-2 px-1 text-sm border-b border-[var(--color-border)] pb-1">
                   <span className="font-semibold">
