@@ -132,7 +132,11 @@ export function Todai() {
               .sort((x, y) => y.valueJpy - x.valueJpy);
             if (groupAssets.length === 0) return null;
             return (
-              <div key={bg.tagId ?? 'untagged'}>
+              <div
+                key={bg.tagId ?? 'untagged'}
+                id={`todai-cat-${bg.tagId ?? 'untagged'}`}
+                className="scroll-mt-20"
+              >
                 <div className="flex items-baseline justify-between mb-2 px-1 text-sm border-b border-[var(--color-border)] pb-1">
                   <span className="font-semibold">
                     {bg.name}{' '}
@@ -732,7 +736,7 @@ function DeltaCell({
 // 非レバセル: ¥ + % (PC=1行・サブ列で揃え / スマホ=2行)
 function BaseCell({ valueJpy, ratio }: { valueJpy: number; ratio: number }) {
   return (
-    <div className="tabular-nums text-[var(--color-text-muted)] flex flex-col items-end sm:flex-row sm:items-center sm:gap-3 sm:justify-end">
+    <div className="tabular-nums flex flex-col items-end sm:flex-row sm:items-center sm:gap-3 sm:justify-end">
       <span className="sm:w-28 sm:text-right">
         ¥{valueJpy.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
       </span>
@@ -773,13 +777,22 @@ function ComparisonTable({ base, lev }: { base: TodaiBigGroup[]; lev: TodaiBigGr
                 <Fragment key={b.tagId ?? 'untagged'}>
                   <tr className="border-t border-[var(--color-border)] font-medium">
                     <td className="py-1.5 pr-2">
-                      <span className="inline-flex items-center gap-2">
+                      <a
+                        href={`#todai-cat-${b.tagId ?? 'untagged'}`}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          document
+                            .getElementById(`todai-cat-${b.tagId ?? 'untagged'}`)
+                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }}
+                        className="inline-flex items-center gap-2 hover:underline cursor-pointer"
+                      >
                         <span
                           className="w-3 h-3 rounded-sm flex-shrink-0"
                           style={{ background: color }}
                         />
                         {b.name}
-                      </span>
+                      </a>
                     </td>
                     <td className="py-1.5 px-2 text-right align-top">
                       <BaseCell valueJpy={b.valueJpy} ratio={b.ratio} />
