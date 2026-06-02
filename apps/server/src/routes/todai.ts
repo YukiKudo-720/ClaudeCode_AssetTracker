@@ -50,6 +50,7 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       name: string;
       assetClass: string;
       valueJpy: number;
+      costJpy: number;
       tagId: string | null;
       leverage: number;
     }
@@ -57,6 +58,12 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
     for (const hs of snapshots) {
       const sec = hs.holding.security;
       const v = Number(hs.marketValueJpy);
+      const qty = Number(hs.quantity);
+      const priceNative = Number(hs.marketPriceNative);
+      const avgCostNative = hs.avgCostNative != null ? Number(hs.avgCostNative) : null;
+      // 簡易 fx: 価値JPY / (数量 × 単価native)
+      const fx = qty > 0 && priceNative > 0 ? v / (qty * priceNative) : 1;
+      const cost = avgCostNative != null ? avgCostNative * qty * fx : 0;
       let agg = secMap.get(sec.id);
       if (!agg) {
         const todaiLink = sec.categories.find((c) => c.category.kind === TODAI_KIND);
@@ -66,12 +73,14 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
           name: sec.name,
           assetClass: sec.assetClass,
           valueJpy: 0,
+          costJpy: 0,
           tagId: todaiLink?.categoryId ?? null,
           leverage: sec.leverage,
         };
         secMap.set(sec.id, agg);
       }
       agg.valueJpy += v;
+      agg.costJpy += cost;
     }
 
     const totalJpy = Array.from(secMap.values()).reduce((s, a) => s + a.valueJpy, 0);
@@ -86,6 +95,8 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
         ratio: totalJpy > 0 ? a.valueJpy / totalJpy : 0,
         tagId: a.tagId,
         leverage: a.leverage,
+        unrealizedPnlJpy: a.costJpy > 0 ? a.valueJpy - a.costJpy : null,
+        unrealizedPnlRatio: a.costJpy > 0 ? (a.valueJpy - a.costJpy) / a.costJpy : null,
       }))
       .sort((a, b) => b.valueJpy - a.valueJpy);
 

@@ -16,7 +16,7 @@ import {
   type TodaiAsset,
   type TodaiBigGroup,
 } from '@asset-tracker/shared';
-import { Plus, Pencil, Trash2, Check, X } from 'lucide-react';
+import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 
 const GRAY = '#94a3b8';
 
@@ -92,10 +92,17 @@ export function Todai() {
 
   // レバレッジ補正版 bigGroups: 各銘柄を |倍率|×評価額 で集計。
   // 並び順・色を非レバ版に揃える (どこが増えたか比較しやすく)。
+  // 楽観的更新で assets が書き換わっても確実に再計算するよう deps を明示。
   const leveragedBigGroups = useMemo(() => {
     const lev = computeLeveragedBigGroups(data?.assets ?? [], data?.tags ?? []);
     return reorderToMatch(lev, data?.bigGroups ?? []);
-  }, [data]);
+  }, [data?.assets, data?.tags, data?.bigGroups]);
+
+  // 実効エクスポージャー合計 (レバ込%計算用)
+  const totalEff = useMemo(
+    () => (data?.assets ?? []).reduce((s, a) => s + Math.abs(a.leverage) * a.valueJpy, 0),
+    [data?.assets],
+  );
 
   if (isLoading) return <p className="text-[var(--color-text-muted)]">読み込み中...</p>;
   if (isError || !data) return <p className="text-[var(--color-negative)]">API エラー</p>;
@@ -155,6 +162,7 @@ export function Todai() {
                       asset={a}
                       bigCats={bigCats}
                       childrenOf={childrenOf}
+                      totalEff={totalEff}
                       disabled={assign.isPending}
                       onAssign={(tagId) => assign.mutate({ securityId: a.securityId, tagId })}
                       onSetLeverage={(leverage) =>
@@ -186,6 +194,7 @@ function AssetRow({
   asset: a,
   bigCats,
   childrenOf,
+  totalEff,
   disabled,
   onAssign,
   onSetLeverage,
@@ -193,75 +202,143 @@ function AssetRow({
   asset: TodaiAsset;
   bigCats: TodaiTag[];
   childrenOf: (id: string) => TodaiTag[];
+  totalEff: number;
   disabled: boolean;
   onAssign: (tagId: string | null) => void;
   onSetLeverage: (leverage: number) => void;
 }) {
   const [levText, setLevText] = useState(String(a.leverage));
+  const [open, setOpen] = useState(false);
 
   function commitLev(): void {
     const v = Number(levText);
     if (Number.isFinite(v) && v !== a.leverage) onSetLeverage(v);
   }
 
+  const effJpy = Math.abs(a.leverage) * a.valueJpy;
+  const effRatio = totalEff > 0 ? effJpy / totalEff : 0;
+  const levLabelCls =
+    a.leverage === 1
+      ? 'text-[var(--color-text-muted)]'
+      : 'text-[var(--color-accent)] font-medium';
+  const pnl = a.unrealizedPnlJpy;
+  const pnlRatio = a.unrealizedPnlRatio;
+  const pnlCls = pnl == null
+    ? ''
+    : pnl >= 0
+      ? 'text-[var(--color-positive)]'
+      : 'text-[var(--color-negative)]';
+
   return (
-    <div className="bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-lg p-3 flex items-center gap-3 flex-wrap sm:flex-nowrap">
-      {/* 銘柄名 (可変幅) */}
-      <div className="min-w-0 flex-1">
-        <div className="text-xs font-mono text-[var(--color-text-muted)]">
-          {a.symbol} · {ASSET_CLASS_LABELS[a.assetClass as AssetClass] ?? a.assetClass}
+    <div className="bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-lg">
+      {/* メイン行 (常時表示) — レバ表示は文字のみ。入力と詳細は展開時 */}
+      <div className="p-3 grid grid-cols-[1fr_auto] gap-x-3 gap-y-3 items-center sm:flex sm:items-center sm:gap-3">
+        {/* 銘柄名 */}
+        <div className="min-w-0 col-start-1 row-start-1 sm:flex-1">
+          <div className="text-xs font-mono text-[var(--color-text-muted)]">
+            {a.symbol} · {ASSET_CLASS_LABELS[a.assetClass as AssetClass] ?? a.assetClass}
+          </div>
+          <div className="font-medium truncate">{a.name}</div>
         </div>
-        <div className="font-medium truncate">{a.name}</div>
+
+        {/* 評価額 */}
+        <div className="col-start-2 row-start-1 text-right tabular-nums whitespace-nowrap sm:row-auto sm:w-28 sm:shrink-0">
+          <div className="font-semibold">{formatJpy(a.valueJpy)}</div>
+          <div className="text-xs text-[var(--color-text-muted)]">{(a.ratio * 100).toFixed(2)}%</div>
+        </div>
+
+        {/* 下段ラッパ — mobile: 2:1:1 sub-grid / PC: contents で flex の続きに */}
+        <div className="col-span-2 row-start-2 grid grid-cols-[2fr_1fr_1fr] gap-2 items-center sm:contents">
+          {/* タグ選択 */}
+          <select
+            className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-sm sm:w-40 sm:shrink-0"
+            value={a.tagId ?? ''}
+            disabled={disabled}
+            onChange={(e) => onAssign(e.target.value || null)}
+          >
+            <option value="">未分類</option>
+            {bigCats.map((big) => {
+              const kids = childrenOf(big.id);
+              return (
+                <optgroup key={big.id} label={big.name}>
+                  <option value={big.id}>{big.name}（大分類のみ）</option>
+                  {kids.map((k) => (
+                    <option key={k.id} value={k.id}>
+                      　{k.name}
+                    </option>
+                  ))}
+                </optgroup>
+              );
+            })}
+          </select>
+
+          {/* レバ比率 (文字のみ) */}
+          <div className={`text-center text-xs sm:text-sm sm:w-20 sm:shrink-0 ${levLabelCls}`}>
+            {leverageLabel(a.leverage)}
+          </div>
+
+          {/* 展開トグル */}
+          <button
+            type="button"
+            onClick={() => setOpen((o) => !o)}
+            className="w-full h-8 flex items-center justify-center text-[var(--color-text-muted)] hover:text-[var(--color-primary)] sm:w-8 sm:shrink-0"
+            aria-label={open ? '詳細を閉じる' : '詳細を開く'}
+            aria-expanded={open}
+          >
+            {open ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+          </button>
+        </div>
       </div>
 
-      {/* レバレッジ列 (固定幅) */}
-      <div className="w-20 shrink-0 flex flex-col items-center">
-        <span
-          className={`text-xs ${a.leverage === 1 ? 'text-[var(--color-text-muted)]' : 'text-[var(--color-accent)] font-medium'}`}
-        >
-          {leverageLabel(a.leverage)}
-        </span>
-        <input
-          type="number"
-          step="0.1"
-          className="w-16 mt-0.5 px-1 py-0.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-xs text-right tabular-nums"
-          value={levText}
-          disabled={disabled}
-          onChange={(e) => setLevText(e.target.value)}
-          onBlur={commitLev}
-          onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-          title="現物=1, 3倍ブル=3, 3倍ベア=-3"
-        />
-      </div>
-
-      {/* 評価額列 (固定幅) */}
-      <div className="w-28 shrink-0 text-right tabular-nums">
-        <div className="font-semibold">{formatJpy(a.valueJpy)}</div>
-        <div className="text-xs text-[var(--color-text-muted)]">{(a.ratio * 100).toFixed(2)}%</div>
-      </div>
-
-      {/* タグ選択列 (固定幅) */}
-      <select
-        className="w-40 shrink-0 px-2 py-1.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-sm"
-        value={a.tagId ?? ''}
-        disabled={disabled}
-        onChange={(e) => onAssign(e.target.value || null)}
-      >
-        <option value="">未分類</option>
-        {bigCats.map((big) => {
-          const kids = childrenOf(big.id);
-          return (
-            <optgroup key={big.id} label={big.name}>
-              <option value={big.id}>{big.name}（大分類のみ）</option>
-              {kids.map((k) => (
-                <option key={k.id} value={k.id}>
-                  　{k.name}
-                </option>
-              ))}
-            </optgroup>
-          );
-        })}
-      </select>
+      {/* 詳細 (折りたたみ) */}
+      {open && (
+        <div className="border-t border-[var(--color-border)] px-3 py-2 text-sm space-y-1.5">
+          {/* レバ比率の編集 */}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[var(--color-text-muted)]">レバ比率</span>
+            <div className="flex items-center gap-2">
+              <span className={levLabelCls}>{leverageLabel(a.leverage)}</span>
+              <input
+                type="number"
+                step="0.1"
+                className="w-16 px-1 py-0.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-xs text-right tabular-nums"
+                value={levText}
+                disabled={disabled}
+                onChange={(e) => setLevText(e.target.value)}
+                onBlur={commitLev}
+                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                title="現物=1, 3倍ブル=3, 3倍ベア=-3"
+              />
+            </div>
+          </div>
+          {/* レバ込 (実効エクスポージャー) */}
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-[var(--color-text-muted)]">レバ込</span>
+            <span className="tabular-nums">
+              {formatJpy(effJpy)}
+              <span className="text-xs text-[var(--color-text-muted)] ml-2">
+                ({(effRatio * 100).toFixed(2)}%)
+              </span>
+            </span>
+          </div>
+          {/* 損益 */}
+          {pnl != null && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[var(--color-text-muted)]">損益</span>
+              <span className={`tabular-nums ${pnlCls}`}>
+                {pnl >= 0 ? '+' : '−'}¥
+                {Math.abs(pnl).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
+                {pnlRatio != null && (
+                  <span className="text-xs ml-2 opacity-80">
+                    ({pnl >= 0 ? '+' : ''}
+                    {(pnlRatio * 100).toFixed(2)}%)
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -267,6 +267,9 @@ export const TodaiAssetSchema = z.object({
   tagId: z.string().nullable(),
   // レバレッジ倍率。現物=1, ブル=正, ベア=負
   leverage: z.number(),
+  // 含み損益 (口座またぎ集計、avgCost が無ければ null)
+  unrealizedPnlJpy: z.number().nullable(),
+  unrealizedPnlRatio: z.number().nullable(),
 });
 export type TodaiAsset = z.infer<typeof TodaiAssetSchema>;
 

@@ -113,7 +113,24 @@ export function useSetLeverage() {
         method: 'PUT',
         body: JSON.stringify({ securityId, leverage }),
       }),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: ['todai'] }),
+    // 楽観的更新: assets の対象 leverage を即座に書き換えて再描画させる
+    onMutate: async ({ securityId, leverage }) => {
+      await qc.cancelQueries({ queryKey: ['todai'] });
+      const previous = qc.getQueryData<TodaiResponse>(['todai']);
+      if (previous) {
+        qc.setQueryData<TodaiResponse>(['todai'], {
+          ...previous,
+          assets: previous.assets.map((a) =>
+            a.securityId === securityId ? { ...a, leverage } : a,
+          ),
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (ctx?.previous) qc.setQueryData(['todai'], ctx.previous);
+    },
+    onSettled: () => void qc.invalidateQueries({ queryKey: ['todai'] }),
   });
 }
 
