@@ -132,14 +132,15 @@ export const moomooAdapter: Adapter = {
 
     if (py.errors.length > 0) {
       ctx.logger.warn({ errors: py.errors }, 'moomoo_fetch reported errors');
-      // 致命的でない (errors あっても accounts 取れてれば続行)
-      if (py.accounts.length === 0) {
-        // OpenD 未起動 or 未ログイン
-        throw new NeedsLoginError(
-          'moomoo',
-          `Moomoo データ取得失敗: ${py.errors.join('; ')}`,
-        );
-      }
+    }
+    // 口座 0 件は OpenD のログインセッション切れの可能性が高いので失敗扱い。
+    // (エラー無し+0件 が無音で ok 扱いになる silent failure を防ぐ)
+    if (py.accounts.length === 0) {
+      const msg =
+        py.errors.length > 0
+          ? `Moomoo データ取得失敗: ${py.errors.join('; ')}`
+          : 'OpenD は接続できたが口座 0 件。OpenD への再ログインが必要な可能性があります';
+      throw new NeedsLoginError('moomoo', msg);
     }
 
     const capturedAt = new Date();
