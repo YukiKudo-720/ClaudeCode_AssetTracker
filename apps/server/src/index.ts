@@ -14,6 +14,7 @@ import { registerAllocationRoutes } from './routes/allocation.js';
 import { registerHistoryRoutes } from './routes/history.js';
 import { registerCategoriesRoutes } from './routes/categories.js';
 import { registerTodaiRoutes } from './routes/todai.js';
+import { registerFxRoutes } from './routes/fx.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PWA_DIST_PATH = path.resolve(__dirname, '..', '..', 'pwa', 'dist');
@@ -44,6 +45,7 @@ async function main(): Promise<void> {
     registerHistoryRoutes(instance);
     registerCategoriesRoutes(instance);
     registerTodaiRoutes(instance);
+    registerFxRoutes(instance);
   });
 
   // PWA を Fastify から静的配信 (本番モード)。

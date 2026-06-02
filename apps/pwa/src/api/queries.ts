@@ -3,6 +3,7 @@ import type {
   AccountSummary,
   AllocationResponse,
   CategoriesResponse,
+  FxRatesResponse,
   HistoryTotalResponse,
   HoldingsResponse,
   ScrapeRunSummary,
@@ -50,6 +51,13 @@ export function useCategories() {
   return useQuery({
     queryKey: ['categories'],
     queryFn: () => apiFetch<CategoriesResponse>('/api/categories'),
+  });
+}
+
+export function useFxRates() {
+  return useQuery({
+    queryKey: ['fx-rates'],
+    queryFn: () => apiFetch<FxRatesResponse>('/api/fx/rates'),
   });
 }
 

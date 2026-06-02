@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { getEndpoint, setEndpoint, getToken, setToken } from '../api/client.js';
-import { useRunNow } from '../api/queries.js';
+import { useRunNow, useFxRates } from '../api/queries.js';
 
 export function Settings() {
   const [endpoint, setEndpointState] = useState(() => getEndpoint());
   const [token, setTokenState] = useState(() => getToken());
   const [saved, setSaved] = useState(false);
   const runNow = useRunNow();
+  const fx = useFxRates();
 
   function handleSave() {
     setEndpoint(endpoint.trim());
@@ -48,6 +49,51 @@ export function Settings() {
           保存
         </button>
         {saved && <span className="ml-3 text-sm text-[var(--color-positive)]">保存しました</span>}
+      </section>
+
+      <section>
+        <h2 className="text-base font-semibold mb-3">為替レート</h2>
+        {fx.isLoading && <p className="text-sm text-[var(--color-text-muted)]">読み込み中…</p>}
+        {fx.isError && (
+          <p className="text-sm text-[var(--color-negative)]">取得できませんでした</p>
+        )}
+        {fx.data && (
+          <>
+            <p className="text-xs text-[var(--color-text-muted)] mb-2">
+              {fx.data.provider} · TTL {fx.data.ttlHours}h (6h 以内のキャッシュを再利用)
+            </p>
+            <table className="w-full text-sm tabular-nums">
+              <thead className="text-left text-xs text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+                <tr>
+                  <th className="py-1.5 pr-2">通貨ペア</th>
+                  <th className="py-1.5 px-2 text-right">レート</th>
+                  <th className="py-1.5 pl-2">取得日時</th>
+                </tr>
+              </thead>
+              <tbody>
+                {fx.data.rates.map((r) => (
+                  <tr key={`${r.base}/${r.quote}`} className="border-b border-[var(--color-border)]">
+                    <td className="py-1 pr-2 font-mono">
+                      {r.base}/{r.quote}
+                    </td>
+                    <td className="py-1 px-2 text-right">{r.rate.toFixed(4)}</td>
+                    <td className="py-1 pl-2 text-xs text-[var(--color-text-muted)]">
+                      {new Date(r.capturedAt).toLocaleString('ja-JP', {
+                        month: 'numeric',
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {fx.data.rates.length === 0 && (
+              <p className="text-xs text-[var(--color-text-muted)]">まだレートが取得されていません</p>
+            )}
+          </>
+        )}
       </section>
 
       <section>

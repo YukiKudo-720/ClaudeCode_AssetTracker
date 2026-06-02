@@ -281,3 +281,21 @@ export const TodaiResponseSchema = z.object({
   assets: z.array(TodaiAssetSchema),
 });
 export type TodaiResponse = z.infer<typeof TodaiResponseSchema>;
+
+
+// /api/fx/rates
+export const FxRateInfoSchema = z.object({
+  base: z.string(),
+  quote: z.string(),
+  rate: z.number(),
+  capturedAt: z.string(),
+  capturedDate: z.string(),
+});
+export type FxRateInfo = z.infer<typeof FxRateInfoSchema>;
+
+export const FxRatesResponseSchema = z.object({
+  rates: z.array(FxRateInfoSchema),
+  ttlHours: z.number(),
+  provider: z.string(),
+});
+export type FxRatesResponse = z.infer<typeof FxRatesResponseSchema>;
