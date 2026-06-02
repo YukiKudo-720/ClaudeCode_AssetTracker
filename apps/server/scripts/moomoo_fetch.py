@@ -93,47 +93,37 @@ def normalize_position(pos: dict) -> dict:
     }
 
 
-# 通貨コード → accinfo_query 内のフィールド名。
-# net_cash_power = マージン負債を差し引いた純現金 (実際に取引/出金可能な額)。
-# 旧: *_cash は預入額そのもの (担保ロック分含む) で、USD マージン残債を
-# 別途差し引かないと総資産が過大計上になる。
-CASH_FIELD_BY_CURRENCY = {
-    'USD': 'usd_net_cash_power',
-    'JPY': 'jpy_net_cash_power',
-    'HKD': 'hkd_net_cash_power',
-    'CNY': 'cnh_net_cash_power',
-    'SGD': 'sgd_net_cash_power',
-    'AUD': 'aud_net_cash_power',
-    'CAD': 'cad_net_cash_power',
-    'MYR': 'myr_net_cash_power',
-}
+# 注意: moomoo の *_cash や *_net_cash_power は
+# - *_cash: 通貨ごとのグロス残高 (USD マージン残債は負値、JPY 担保ロック含む)
+# - *_net_cash_power: 各通貨ベースでの純買付余力 (実体は同一プールを通貨別に
+#   換算表示しているだけで、足すと二重カウントする)
+# 旧実装はこれら通貨別フィールドを使っていたが、JP 口座のように JPY 担保 +
+# USD マージン構成だと総資産が過大になる。
+# 解決策: accinfo_query を currency=JPY で叩いて `cash` (JPY 基準の純現金) を
+# 直接取り、単一の JPY 現金として 1 本だけ計上する。
 
 
 def fetch_account(ctx, acc_row) -> dict:
     acc_id = int(acc_row['acc_id'])
     card_num = str(acc_row.get('card_num', '')) or str(acc_id)
 
-    # accinfo_query は currency=USD で 1 回呼ぶだけで全通貨の us_cash/jp_cash 等が返る
+    # accinfo_query を JPY 基準で呼び、`cash` (純現金 = total_assets - market_val)
+    # を JPY 単位で取得して 1 本だけ計上する。負債/担保ロックを正しく反映。
     cash_by_currency: dict[str, float] = {}
     base_currency = 'USD'
     funds_error = None
     try:
         ret, funds = ctx.accinfo_query(
-            acc_id=acc_id, trd_env=TrdEnv.REAL, currency=Currency.USD
+            acc_id=acc_id, trd_env=TrdEnv.REAL, currency=Currency.JPY
         )
         if ret == RET_OK and len(funds) > 0:
             row = funds.iloc[0]
-            for cur, field in CASH_FIELD_BY_CURRENCY.items():
-                val = row.get(field)
-                if val is None:
-                    continue
-                # N/A は str で来るので除外
-                try:
-                    amount = float(val)
-                except (TypeError, ValueError):
-                    continue
-                if amount > 0:
-                    cash_by_currency[cur] = amount
+            try:
+                jpy_net_cash = float(row.get('cash', 0) or 0)
+                if jpy_net_cash != 0:
+                    cash_by_currency['JPY'] = jpy_net_cash
+            except (TypeError, ValueError):
+                pass
         else:
             funds_error = str(funds)
     except Exception as e:
