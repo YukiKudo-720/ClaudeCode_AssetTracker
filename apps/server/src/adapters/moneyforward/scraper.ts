@@ -182,14 +182,18 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
     await dumpDebug(page, `detail-${label}-no-depo`);
     throw new Error(`${label}: 詳細ページ読み込み失敗 (URL: ${page.url()})`);
   }
-  // eq / mf / fx は無いブローカー / アカウントもあるので waitForSelector を try-only
+  // eq / mf / fx / mgn は無いブローカー / アカウントもあるので waitForSelector を try-only
   await page.waitForSelector('#portfolio_det_eq', { timeout: 3_000 }).catch(() => {});
   await page.waitForSelector('#portfolio_det_mf', { timeout: 3_000 }).catch(() => {});
   await page.waitForSelector('#portfolio_det_fx', { timeout: 3_000 }).catch(() => {});
+  await page.waitForSelector('#portfolio_det_mgn', { timeout: 3_000 }).catch(() => {});
 
-  // 預金・現金・暗号資産 (depo)
+  // 預金・現金・暗号資産 (depo) + 株式(信用)の信用保証金 (mgn)
+  // 楽天証券は買付資金を楽天銀行から自動移管する関係で「預り金」が一時的に
+  // 負値、「信用保証金」が同額正値になることがあり、両者を合算しないと
+  // 総資産が過小計上される。
   const cashBreakdownRaw = await page.$$eval(
-    '#portfolio_det_depo table.table-depo tbody tr',
+    '#portfolio_det_depo table.table-depo tbody tr, #portfolio_det_mgn table.table-depo tbody tr',
     (trs) =>
       trs.map((tr) => {
         const tds = tr.querySelectorAll('td');
