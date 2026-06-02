@@ -93,16 +93,19 @@ def normalize_position(pos: dict) -> dict:
     }
 
 
-# 通貨コード → accinfo_query 内のフィールド名
+# 通貨コード → accinfo_query 内のフィールド名。
+# net_cash_power = マージン負債を差し引いた純現金 (実際に取引/出金可能な額)。
+# 旧: *_cash は預入額そのもの (担保ロック分含む) で、USD マージン残債を
+# 別途差し引かないと総資産が過大計上になる。
 CASH_FIELD_BY_CURRENCY = {
-    'USD': 'us_cash',
-    'JPY': 'jp_cash',
-    'HKD': 'hk_cash',
-    'CNY': 'cn_cash',  # cnh_net_cash_power 系も別途あるがまず cn_cash
-    'SGD': 'sg_cash',
-    'AUD': 'au_cash',
-    'CAD': 'ca_cash',
-    'MYR': 'my_cash',
+    'USD': 'usd_net_cash_power',
+    'JPY': 'jpy_net_cash_power',
+    'HKD': 'hkd_net_cash_power',
+    'CNY': 'cnh_net_cash_power',
+    'SGD': 'sgd_net_cash_power',
+    'AUD': 'aud_net_cash_power',
+    'CAD': 'cad_net_cash_power',
+    'MYR': 'myr_net_cash_power',
 }
 
 
