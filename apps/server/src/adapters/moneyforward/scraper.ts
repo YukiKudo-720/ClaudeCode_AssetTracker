@@ -204,10 +204,14 @@ async function scrapeBrokerageDetail(page: Page, accountId: string, label: strin
       }),
   );
 
-  const cashBreakdown: CashRow[] = cashBreakdownRaw.map((c) => ({
-    label: c.label,
-    amountJpy: parseAmount(c.amountText),
-  }));
+  const cashBreakdown: CashRow[] = cashBreakdownRaw
+    .map((c) => ({
+      label: c.label,
+      amountJpy: parseAmount(c.amountText),
+    }))
+    // SBI証券のスィープ専用銀行口座 (= 住信SBI ハイブリッド預金) は住信SBI銀行側でも
+    // 同額を取得しているため、両方計上すると二重カウントになる → 除外
+    .filter((c) => !/スィープ|スイープ|ハイブリッド/.test(c.label));
   let cashJpy = cashBreakdown.reduce((s, c) => s + c.amountJpy, 0);
 
   // 株式（現物）(eq)
