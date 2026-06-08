@@ -390,11 +390,13 @@ function detectStockAssetClass(name: string): 'stock' | 'etf' {
 }
 
 function buildStockHolding(row: RawStockRow): HoldingUpdate {
-  // 4 桁数字 → 日本株 (TSE)、それ以外 → 米国株扱い (NASDAQ/NYSE 判別不可なので exchange=null)
+  // 日本株判定: 4桁数字 (旧) または 3桁数字+英数字1文字 (新JPX形式、2024-10〜)
+  //   例: 7203 (トヨタ), 285A (キオクシアHD), 9999Z 等
+  // 上記以外 → 米国株扱い (NASDAQ/NYSE 判別不可なので exchange=null)
   // MF は column 3 (avgCost) と column 4 (currentPrice) を native currency で表示する。
   // (JP 株は JPY/株、US 株は USD/株)。column 5 (marketValue) のみ JPY 換算。
   // → native price/avgCost をそのまま使い、value は fx で再計算させる。
-  const isJpStock = /^\d{4}$/.test(row.symbol);
+  const isJpStock = /^\d{3}[A-Z0-9]$/.test(row.symbol);
   const assetClass = detectStockAssetClass(row.name);
   const priceNative = row.currentPrice > 0
     ? row.currentPrice
