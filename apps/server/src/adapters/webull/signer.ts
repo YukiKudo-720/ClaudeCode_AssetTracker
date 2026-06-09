@@ -45,7 +45,9 @@ function pythonQuote(s: string): string {
 export function buildSignedRequest(p: SignParams): SignedRequest {
   // タイムスタンプ: UTC, "YYYY-MM-DDTHH:MM:SSZ" (秒精度、ミリ秒なし)
   const now = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-  const nonce = randomUUID();
+  // nonce: Python サンプル uuid.uuid4().hex に合わせて「ハイフン無し」32文字
+  // randomUUID() は標準形 (ハイフン付き) を返すので除去する
+  const nonce = randomUUID().replace(/-/g, '');
 
   // 実際のリクエストに乗るヘッダ (host は fetch が自動付与)
   const headers: Record<string, string> = {
@@ -100,9 +102,8 @@ export function buildSignedRequest(p: SignParams): SignedRequest {
     .digest('base64');
 
   headers['x-signature'] = signature;
-  if (bodyJson) {
-    headers['Content-Type'] = 'application/json';
-  }
+  // Python サンプルは GET でも Content-Type を常時付ける
+  headers['Content-Type'] = 'application/json';
   if (p.apiVersion) {
     headers['x-version'] = p.apiVersion;
   }

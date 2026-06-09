@@ -24,6 +24,11 @@ const EnvSchema = z.object({
   // Webull JP OpenAPI (optional; 両方セットされてれば adapter 有効化)
   WEBULL_APP_KEY: z.string().optional(),
   WEBULL_APP_SECRET: z.string().optional(),
+  // サブ枠 (401 切り分け用の追加 App key/secret。WEBULL_USE_SUB=1 で client.ts が
+  // 一時的にこちらに切替)
+  WEBULL_APP_KEY_SUB: z.string().optional(),
+  WEBULL_APP_SECRET_SUB: z.string().optional(),
+  WEBULL_USE_SUB: z.string().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);

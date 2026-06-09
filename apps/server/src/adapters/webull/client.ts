@@ -7,8 +7,9 @@ import { buildSignedRequest } from './signer.js';
 const HOST = 'api.webull.co.jp';
 
 export class WebullCredentialsMissingError extends Error {
-  constructor() {
-    super('WEBULL_APP_KEY / WEBULL_APP_SECRET が .env に未設定');
+  constructor(useSub = false) {
+    const prefix = useSub ? 'WEBULL_APP_KEY_SUB / WEBULL_APP_SECRET_SUB' : 'WEBULL_APP_KEY / WEBULL_APP_SECRET';
+    super(`${prefix} が .env に未設定`);
     this.name = 'WebullCredentialsMissingError';
   }
 }
@@ -27,8 +28,12 @@ async function callWebull<T>(
   body?: unknown,
   apiVersion: string = 'v1',
 ): Promise<T> {
-  if (!env.WEBULL_APP_KEY || !env.WEBULL_APP_SECRET) {
-    throw new WebullCredentialsMissingError();
+  // WEBULL_USE_SUB=1 ならサブ枠の key/secret に切替 (401 切り分け用)
+  const useSub = env.WEBULL_USE_SUB === '1' || env.WEBULL_USE_SUB === 'true';
+  const appKey = useSub ? env.WEBULL_APP_KEY_SUB : env.WEBULL_APP_KEY;
+  const appSecret = useSub ? env.WEBULL_APP_SECRET_SUB : env.WEBULL_APP_SECRET;
+  if (!appKey || !appSecret) {
+    throw new WebullCredentialsMissingError(useSub);
   }
   const signed = buildSignedRequest({
     method,
@@ -36,8 +41,8 @@ async function callWebull<T>(
     queries,
     body,
     host: HOST,
-    appKey: env.WEBULL_APP_KEY,
-    appSecret: env.WEBULL_APP_SECRET,
+    appKey,
+    appSecret,
     apiVersion,
   });
 
