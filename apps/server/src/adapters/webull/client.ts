@@ -94,10 +94,11 @@ export interface WebullPosition {
   [key: string]: unknown;
 }
 
-// JP 版は /openapi/account/list ではなく /app/subscriptions/list
-// (docs では「Account List」というタイトルだが URL 末尾は app_subscription)
+// サポートからの 2026-06-09 案内で「新しい API エンドポイント」へ移行。
+// 旧: /app/subscriptions/list → 新: /openapi/account/list
+// (recipes_jp の Python サンプル準拠)
 export async function listAccounts(): Promise<unknown> {
-  return callWebull('GET', '/app/subscriptions/list');
+  return callWebull('GET', '/openapi/account/list');
 }
 
 export async function getAccountBalance(
