@@ -18,9 +18,10 @@ async function main() {
     const accounts = await listAccounts();
     console.log(JSON.stringify(accounts, null, 2));
 
-    // accounts のレスポンスから account_id を抽出して詳細も探査
-    const list = (accounts as { data?: { account_id?: string }[] } | { accounts?: { account_id?: string }[] });
-    const accountList = (list as { data?: unknown[] }).data ?? (list as { accounts?: unknown[] }).accounts ?? [];
+    // v2 は配列直返し。互換のため data/accounts ラップも吸収
+    const accountList = Array.isArray(accounts)
+      ? accounts
+      : (accounts as { data?: unknown[] }).data ?? (accounts as { accounts?: unknown[] }).accounts ?? [];
     const items = (accountList as { account_id?: string; accountId?: string }[]).slice(0, 2);
 
     for (const acc of items) {

@@ -106,18 +106,19 @@ export async function listAccounts(): Promise<unknown> {
   return callWebull('GET', '/openapi/account/list');
 }
 
+// v2 では Assets (複数形) セクション配下に移動
 export async function getAccountBalance(
   accountId: string,
   totalAssetCurrency = 'JPY',
 ): Promise<unknown> {
-  return callWebull('GET', '/openapi/account/balance', {
+  return callWebull('GET', '/openapi/assets/balance', {
     account_id: accountId,
     total_asset_currency: totalAssetCurrency,
   });
 }
 
 export async function getAccountPositions(accountId: string): Promise<unknown> {
-  return callWebull('GET', '/openapi/account/positions', {
+  return callWebull('GET', '/openapi/assets/positions', {
     account_id: accountId,
   });
 }
