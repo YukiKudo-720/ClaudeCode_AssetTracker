@@ -26,7 +26,7 @@ async function callWebull<T>(
   uri: string,
   queries?: Record<string, string>,
   body?: unknown,
-  apiVersion: string = 'v1',
+  apiVersion: string = 'v2',
 ): Promise<T> {
   // WEBULL_USE_SUB=1 ならサブ枠の key/secret に切替 (401 切り分け用)
   const useSub = env.WEBULL_USE_SUB === '1' || env.WEBULL_USE_SUB === 'true';

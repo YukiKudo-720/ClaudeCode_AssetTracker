@@ -50,11 +50,13 @@ export function buildSignedRequest(p: SignParams): SignedRequest {
   const nonce = randomUUID().replace(/-/g, '');
 
   // 実際のリクエストに乗るヘッダ (host は fetch が自動付与)
+  // 2026-05-23 changelog で HMAC-SHA1 → HMAC-SHA256 にアップグレード。
+  // v1 旧ゲートウェイは IP ホワイトリスト未対応のため v2 への移行を推奨される。
   const headers: Record<string, string> = {
     'x-app-key': p.appKey,
     'x-timestamp': now,
     'x-signature-version': '1.0',
-    'x-signature-algorithm': 'HMAC-SHA1',
+    'x-signature-algorithm': 'HMAC-SHA256',
     'x-signature-nonce': nonce,
   };
 
@@ -63,7 +65,7 @@ export function buildSignedRequest(p: SignParams): SignedRequest {
     'x-app-key': p.appKey,
     'x-timestamp': now,
     'x-signature-version': '1.0',
-    'x-signature-algorithm': 'HMAC-SHA1',
+    'x-signature-algorithm': 'HMAC-SHA256',
     'x-signature-nonce': nonce,
     host: p.host,
   };
@@ -75,6 +77,7 @@ export function buildSignedRequest(p: SignParams): SignedRequest {
   }
 
   // body 文字列: compact JSON → MD5 hex (uppercase)
+  // ※ body の MD5 はそのまま (changelog の SHA256 化は HMAC 鍵側のみ)
   let bodyJson: string | null = null;
   let bodyHash: string | null = null;
   if (p.body !== null && p.body !== undefined) {
@@ -96,8 +99,9 @@ export function buildSignedRequest(p: SignParams): SignedRequest {
   }
   stringToSign = pythonQuote(stringToSign);
 
-  // 署名: HMAC-SHA1(secret + "&", string_to_sign) → base64
-  const signature = createHmac('sha1', p.appSecret + '&')
+  // 署名: HMAC-SHA256(secret + "&", string_to_sign) → base64
+  // (2026-05-23 changelog で HMAC-SHA1 → HMAC-SHA256 へアップグレード)
+  const signature = createHmac('sha256', p.appSecret + '&')
     .update(stringToSign)
     .digest('base64');
 
