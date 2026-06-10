@@ -687,10 +687,15 @@ await fastify.register(fastifyStatic, {
   - 抽出: 銀行残高、株式 (個別株/ETF 自動判別)、投資信託 (region 自動判別)、FX
   - SBI証券 FX セクションは `sbi_sec_fx` 別 institution として独立計上
 - [x] §14-7 為替更新: **frankfurter.app** (ECB ベース無料) を使用 (exchangerate.host は API key 必須化されたため変更)
-- [x] §14-8 Webull adapter — HMAC-SHA1 署名実装済み、ただし 401 UNAUTHORIZED 継続中
-  - サポート問い合わせ済 (clientservices@webull.co.jp、ソースコード添付)
-  - 添付物: `data/webull-support/` (signer.js.txt + repro_python.py + README.md)
-  - **状態: サポート返答待ち。動作未確認**
+- [x] §14-8 **Webull (OpenAPI v2) adapter** ([apps/server/src/adapters/webull/](../../apps/server/src/adapters/webull/))
+  - v1 旧ゲートウェイは IP whitelist 未対応 + 2026-05-23 changelog で HMAC-SHA1→SHA256 化
+  - 修正: `x-signature-algorithm: HMAC-SHA256` + `x-version: v2` + endpoint を `/openapi/assets/balance` `/openapi/assets/positions` に
+  - 動作確認: Individual Cash 口座から LITE/NAK/MVLL + USD cash を取り込み (¥323K)
+  - 残: portal の IP whitelist (`/32`) はユーザー出口 IP 変動時に再登録必要
+- [x] **MF への Webull 総額逆プッシュ** ([scripts/mf-push-webull.ts](../../apps/server/scripts/mf-push-webull.ts))
+  - Webull はカード型連携が無いため MF 上で手動登録運用
+  - DB の `accountSnapshot.totalValueJpy` を Playwright で「資産の更新」モーダルに自動入力
+  - 前提: MF 側に 1 行作成済 (本スクリプトは update のみ、create なし)
 - [x] §14-9 **Moomoo adapter** (Futu OpenAPI) ([apps/server/src/adapters/moomoo/](../../apps/server/src/adapters/moomoo/))
   - Node ⇄ Python サブプロセス連携 (futu-api 公式 SDK は Python のみ)
   - OpenD (127.0.0.1:11111) を起動しておく必要あり
@@ -744,12 +749,7 @@ await fastify.register(fastifyStatic, {
 
 ### 申し送り事項 (未解決 / 後回し)
 
-- [ ] **Webull adapter 401 問題** — サポート返答待ち。コード側は HMAC-SHA1 署名・パス・パラメータ全て Python SDK と一致確認済み。アカウント設定 (App key/secret/IP whitelist/permissions) 問題の可能性
 - [ ] **IG証券**: API なし + MF も OTP 必須で自動取得不可。手動入力 UI が必要だが、優先度低 → **後回し**
-- [ ] **PWA がスケジュール同期の結果を即時反映しない問題** (案 A で運用継続)
-  - スケジュール: scrape:all は DB 更新するが、PC が即スリープに戻るためサーバが起動していない
-  - PWA がデータを「見る」には、ユーザーが PC を起こして手動で `pnpm dev` 等でサーバを起動する必要がある
-  - 案 B (スケジュール内でサーバ一時起動) / 案 C (サーバを Windows サービス化) は **将来必要なら検討**
 - [ ] **未 push commit** が多数。push タイミングはユーザー判断
 - [ ] **未使用ファイル**: [apps/pwa/src/db/dexie.ts](../../apps/pwa/src/db/dexie.ts) は React Query 永続化に置き換え済みで未使用 (削除禁止ルールのため残置)
 - [ ] **個別銘柄の時系列グラフ** (UI 未実装、データは取得済み)
@@ -759,12 +759,37 @@ await fastify.register(fastifyStatic, {
 - [ ] **履歴データの遡及不可**: 5/24 以前のデータは開発中の DB 作り直しで消滅。5/25 以降は capturedDate ベースの日次 upsert で正常に積み上がる
 - [ ] **東大タグ: 未分類36銘柄** の手動割当待ち (画像の見えていない行 = 個別株中心)。タグ階層は作成済みなのでドロップダウンで選ぶだけ
 - [ ] **レバレッジ手動確認**: 自動判定は名前ベースのため、レバ銘柄は東大ページで倍率を確認・修正推奨
-- [ ] **アーキテクチャ移行: Raspberry Pi を常時稼働サーバに**
-  - 動機: 現状は PC スリープ中スマホから取得不可。スケジュール (07:00/15:35) 後の最新データを遠隔地で見るには PC 常時起動が必要
-  - 提案: tailnet 上の `raspberrypi` (現在 offline) を起こして Fastify + SQLite を稼働
-  - 役割分担: **PC = scraper 専用** (認証情報を持つ)、**Pi = サーバ役** (PWA リクエスト全捌き)
-  - 流れ: PC scrape → 結果を Pi の `POST /api/sync` に送信 → PC はスリープへ。スマホはいつでも Pi へ tailnet 経由でアクセス
-  - 別案: Cloudflare R2 + Worker (クラウド静的配信) も検討余地あり (Pi メンテ嫌な場合)
+- [ ] **アーキテクチャ移行: Raspberry Pi 主体 + PC scraper ワーカー (確定方針)**
+  - 動機: PC スリープ中も PWA から最新値を取得したい。スケジュール後の更新を遠隔地で反映させたい
+  - 役割分担:
+    - **Pi (常時稼働)**: Fastify + SQLite + PWA 配信 + Webull adapter + 為替更新 + cron スケジューラ
+    - **PC (定刻のみ起動)**: MF scrape + moomoo (OpenD) + MF push-webull。仕事終わったら suspend
+    - **スマホ**: Pi に Tailscale 直アクセス
+  - ハードウェア:
+    - Pi 4 Model B (確認済)。Playwright headful + Xvfb もメモリ 4GB あれば回せる
+    - ルータ: WN-7T94XR (VPN サーバ機能なし想定だが Tailscale で代替済みのため問題なし)
+  - **Wake-on-LAN 活用**: Pi cron が PC を叩き起こす (WoL マジックパケット LAN ブロードキャスト)
+    - 同一 LAN なら Tailscale 不要、ルータ追加設定も不要
+    - PWA に「今すぐ scrape」ボタン追加可能 → Pi が WoL → PC が仕事 → 結果即反映
+  - 構成 (確定後):
+    ```
+    Pi cron 07:00 / 15:35:
+      1. wakeonlan <PC-MAC>
+      2. PC 起動待ち (60s or HTTP ping)
+      3. PC が起動時自動で scrape:all → POST /api/sync → suspend
+      4. Pi が webull:run + fx 更新
+    ```
+  - **moomoo の扱い**: OpenD は Linux ARM 非公式サポートなので PC 残し継続。将来 Pi で動くなら移行可
+  - **MF scrape も将来 Pi 移行可** (Xvfb + headful Playwright)、検出回避できれば PC 完全不要に
+  - 実装ステップ:
+    1. Pi セットアップ手順書 (`docs/pi-setup.md`)
+    2. `POST /api/sync` エンドポイント (Pi 側、PC からの結果受信)
+    3. PC 側 scraper を「Pi に POST するモード」に対応 (`SYNC_TARGET=http://pi:3000` 等の env)
+    4. WoL: Pi に `wakeonlan` 導入 + PC 側 BIOS/Windows で WoL 有効化 + MAC 控え
+    5. Pi cron 設定 (旧 register-scheduled-sync.ps1 を Pi cron に置換)
+    6. PC 起動時自動実行 → 結果送信 → suspend
+  - ユーザー側未完作業: ルータ設定確認、Pi 起動、PC の BIOS WoL 有効化 + MAC 取得
+  - 別案 (Pi 無理な場合): Cloudflare R2 + Worker 静的配信 (Pi メンテ嫌な場合) — まだ未採用
 
 ### UI ルール (CLAUDE.md に記載)
 
