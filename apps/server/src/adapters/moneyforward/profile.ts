@@ -26,6 +26,8 @@ export const MF_URLS = {
   home: 'https://moneyforward.com/',
   /** 資産バランスシート (口座/銘柄一覧) */
   balanceSheet: 'https://moneyforward.com/bs',
+  /** 資産内訳 (手動登録資産の編集モーダルあり) */
+  portfolio: 'https://moneyforward.com/bs/portfolio',
   /** 口座一覧 (個別口座詳細へのリンク) */
   accounts: 'https://moneyforward.com/accounts',
 } as const;
