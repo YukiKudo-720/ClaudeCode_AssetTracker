@@ -4,13 +4,14 @@ import { logger } from '../logger.js';
 import { createFxCache } from '../fx.js';
 import { moneyforwardAdapter } from '../adapters/moneyforward/index.js';
 import { moomooAdapter } from '../adapters/moomoo/index.js';
+import { webullAdapter } from '../adapters/webull/index.js';
 import type { Adapter, AdapterContext } from '../adapters/types.js';
 import { NeedsLoginError } from '../adapters/types.js';
 import { persistAccountUpdate } from './persist.js';
 
 const ADAPTERS: Record<DataSource, Adapter | null> = {
   moneyforward: moneyforwardAdapter,
-  webull_api: null,    // TODO: §14-8
+  webull_api: webullAdapter,
   moomoo_api: moomooAdapter,
   direct_scrape: null,
   manual: null,

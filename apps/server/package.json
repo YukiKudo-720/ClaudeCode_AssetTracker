@@ -19,7 +19,8 @@
     "mf:run": "tsx scripts/mf-run.ts",
     "moomoo:run": "tsx scripts/moomoo-run.ts",
     "scrape:all": "tsx scripts/scrape-all.ts",
-    "webull:probe": "tsx scripts/webull-probe.ts"
+    "webull:probe": "tsx scripts/webull-probe.ts",
+    "webull:run": "tsx scripts/webull-run.ts"
   },
   "dependencies": {
     "@asset-tracker/shared": "workspace:*",
