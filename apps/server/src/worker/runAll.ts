@@ -5,6 +5,8 @@ import { createFxCache } from '../fx.js';
 import { moneyforwardAdapter } from '../adapters/moneyforward/index.js';
 import { moomooAdapter } from '../adapters/moomoo/index.js';
 import { webullAdapter } from '../adapters/webull/index.js';
+import { env } from '../env.js';
+import { postSync } from '../sync-client.js';
 import type { Adapter, AdapterContext } from '../adapters/types.js';
 import { NeedsLoginError } from '../adapters/types.js';
 import { persistAccountUpdate } from './persist.js';
@@ -48,6 +50,22 @@ export async function runAdapter(source: DataSource): Promise<RunResult> {
     for (const update of result.accountUpdates) {
       await persistAccountUpdate(ctx, update, source);
       touched += 1;
+    }
+    // SYNC_TARGET 設定があれば Pi (or 他ホスト) にも同期。失敗してもローカル
+    // persist は完了しているので run 自体は成功扱い (warn ログのみ)
+    if (env.SYNC_TARGET && result.accountUpdates.length > 0) {
+      try {
+        await postSync({
+          target: env.SYNC_TARGET,
+          token: env.ASSET_TRACKER_TOKEN,
+          source,
+          accountUpdates: result.accountUpdates,
+          logger: ctx.logger,
+        });
+        ctx.logger.info({ syncedTo: env.SYNC_TARGET, count: result.accountUpdates.length }, 'synced to remote');
+      } catch (syncErr) {
+        ctx.logger.warn({ err: syncErr, syncTarget: env.SYNC_TARGET }, 'remote sync failed (local persist succeeded)');
+      }
     }
     await prisma.scrapeRun.update({
       where: { id: run.id },

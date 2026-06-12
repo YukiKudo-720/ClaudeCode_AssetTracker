@@ -29,6 +29,11 @@ const EnvSchema = z.object({
   WEBULL_APP_KEY_SUB: z.string().optional(),
   WEBULL_APP_SECRET_SUB: z.string().optional(),
   WEBULL_USE_SUB: z.string().optional(),
+
+  // 別ホスト (Pi 等) へ scrape 結果を同期する場合の base URL。
+  // 設定すると runAdapter は local persist の後に POST {target}/api/sync する。
+  // 主用途: PC で MF/moomoo scrape → Pi (常時稼働サーバ) へデータ反映
+  SYNC_TARGET: z.string().url().optional(),
 });
 
 const parsed = EnvSchema.safeParse(process.env);
