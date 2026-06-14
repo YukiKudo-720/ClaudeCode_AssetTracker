@@ -778,16 +778,18 @@ await fastify.register(fastifyStatic, {
     ```
     Pi cron 07:00 / 15:35 / 22:30:
       → /srv/asset-tracker/scripts/pi-wake-and-scrape.sh
-         1. wakeonlan -i 192.168.0.255 9C:6B:00:B8:C6:B4
-         2. SSH 22 が開くまで polling (最大 120s)
-         3. ssh guilt@100.99.142.112 'schtasks /Run /TN AssetTrackerScrape'
-            (fire-and-forget)
-      → PC Windows タスクスケジューラ AssetTrackerScrape (LogonType Interactive):
-         scripts\scrape-and-suspend.ps1 -SuspendAfter
+         1. PC が TCP/22 に応答するか check (= 既に起きているか)
+         2a. 起きている → ssh schtasks /Run AssetTrackerScrapeNoSuspend
+             (作業中の PC をスリープに戻さない)
+         2b. 寝ている    → WoL → SSH 22 polling → ssh schtasks /Run AssetTrackerScrape
+             (scrape 後に S3 sleep へ戻す)
+      → PC Windows タスクスケジューラ (LogonType Interactive / RunLevel Highest):
+         - AssetTrackerScrape:          scrape-and-suspend.ps1 -SuspendAfter
+         - AssetTrackerScrapeNoSuspend: scrape-and-suspend.ps1
             1. node <絶対パス>\tsx\dist\cli.mjs apps\server\scripts\scrape-all.ts
                (各 adapter 完了ごとに POST /api/sync で Pi へ反映)
             2. node <絶対パス>\tsx\dist\cli.mjs apps\server\scripts\mf-push-webull.ts
-            3. 10 秒待って SetSuspendState (S3 スリープ)
+            3. (-SuspendAfter 時のみ) 10 秒待って SetSuspendState (S3 スリープ)
     ```
 
   - 構築完了項目:
@@ -796,7 +798,9 @@ await fastify.register(fastifyStatic, {
     - [x] PC → Pi 同期クライアント ([apps/server/src/sync-client.ts](../../apps/server/src/sync-client.ts)) + `SYNC_TARGET` env
     - [x] WoL 環境構築 (PC NIC / BIOS / Pi `wakeonlan`)
     - [x] PC OpenSSH Server + Pi → PC 公開鍵認証 (`administrators_authorized_keys`)
-    - [x] Windows タスクスケジューラ `AssetTrackerScrape` (`LogonType Interactive` + `RunLevel Highest`)
+    - [x] Windows タスクスケジューラ 2 つ登録 (`LogonType Interactive` + `RunLevel Highest`):
+      - `AssetTrackerScrape` (`-SuspendAfter` 込): PC が寝てた時用
+      - `AssetTrackerScrapeNoSuspend` (suspend なし): PC が起きてた (作業中) 時用
     - [x] PC 側ラッパー [scripts/scrape-and-suspend.ps1](../../scripts/scrape-and-suspend.ps1)
       - pnpm の Junction を SSH トークンが辿れない問題を、`tsx` 本体を `.pnpm` から絶対パスで起動する形で回避
     - [x] Pi 側ラッパー [scripts/pi-wake-and-scrape.sh](../../scripts/pi-wake-and-scrape.sh)
