@@ -759,51 +759,62 @@ await fastify.register(fastifyStatic, {
 - [ ] **履歴データの遡及不可**: 5/24 以前のデータは開発中の DB 作り直しで消滅。5/25 以降は capturedDate ベースの日次 upsert で正常に積み上がる
 - [ ] **東大タグ: 未分類36銘柄** の手動割当待ち (画像の見えていない行 = 個別株中心)。タグ階層は作成済みなのでドロップダウンで選ぶだけ
 - [ ] **レバレッジ手動確認**: 自動判定は名前ベースのため、レバ銘柄は東大ページで倍率を確認・修正推奨
-- [/] **アーキテクチャ移行: Raspberry Pi 主体 + PC scraper ワーカー (進行中)**
+- [x] **アーキテクチャ移行: Raspberry Pi 主体 + PC scraper ワーカー (完了 2026-06-14)**
   - 動機: PC スリープ中も PWA から最新値を取得したい。スケジュール後の更新を遠隔地で反映させたい
   - 役割分担:
-    - **Pi (常時稼働)**: Fastify + SQLite + PWA 配信 + Webull adapter + 為替更新 + cron スケジューラ
-    - **PC (定刻のみ起動)**: MF scrape + moomoo (OpenD) + MF push-webull。仕事終わったら suspend
-    - **スマホ**: Pi に Tailscale 直アクセス
+    - **Pi (常時稼働)**: Fastify + SQLite + PWA 配信 + cron スケジューラ (WoL トリガ)
+    - **PC (定刻のみ起動)**: scrape:all (MF + moomoo + Webull) + mf:push-webull。完了後 suspend (S3)
+    - **スマホ/ブラウザ**: Pi の PWA を Tailscale 越しに常時参照
+
   - ハードウェア:
-    - Pi 4 Model B (確認済 / 4GB RAM / Debian 12 / kernel 6.12.75)
+    - Pi 4 Model B (4GB RAM / Debian 12 / kernel 6.12.75)
     - Pi tailnet IP: `100.85.86.51` / Pi LAN IP: `192.168.0.3` (wlan0、無線で常時参加)
     - PC tailnet IP: `100.99.142.112` / PC LAN: `192.168.0.0/24` (gateway `192.168.0.1`)
-    - PC NIC: Realtek Gaming 2.5GbE (有線) / MAC `9C-6B-00-B8-C6-B4`
-    - ルータ: WN-7T94XR (Tailscale で代替済み、ルータ VPN 不使用)
+    - PC NIC: Realtek Gaming 2.5GbE (有線) / MAC `9C-6B-00-B8-C6-B4` / マザボ ASRock B760M-HDV/M.2
+    - ルータ: WN-7T94XR (Tailscale で代替、ルータ VPN 不使用)
     - PC/Pi 共に同一 MAP-E 出口 IP `133.32.129.8` (Webull whitelist 登録済)
 
-  - 進捗:
-    - [x] **Pi 初期セットアップ完了**: 作業領域 `/srv/asset-tracker/`、Node 22.22.3 / pnpm 11.6.0、Prisma 生成、systemd `asset-tracker.service` で常時稼働
-    - [x] **`POST /api/sync` 実装** ([apps/server/src/routes/sync.ts](../../apps/server/src/routes/sync.ts)) — Pi 受信側
-    - [x] **PC → Pi 同期クライアント** ([apps/server/src/sync-client.ts](../../apps/server/src/sync-client.ts)) — `SYNC_TARGET` env で発火
-    - [x] **runAdapter に sync 組込み** ([apps/server/src/worker/runAll.ts](../../apps/server/src/worker/runAll.ts)) — local persist 後に Pi へ POST、失敗時は warn のみ
-    - [x] **Pi cron**: yuki ユーザーで Webull adapter を 07:00 / 15:35 / 22:30 に直接実行 (`webull-run.ts`)
-    - [x] **動作確認**: PC `scrape:all` → Pi DB に反映 → PWA で確認 OK
-    - [/] **WoL 環境構築 (進行中)**
-      - [x] PC MAC 取得: `9C-6B-00-B8-C6-B4` (Realtek 2.5GbE)
-      - [x] PC Windows NIC: 電源管理「Magic Packet のみで解除」ON、詳細設定「Wake on Magic Packet=Enabled / Wake on Pattern Match=Disabled / WoL & Shutdown Link Speed=10 Mbps First / EEE=Disabled」
-      - [x] PC 高速スタートアップ無効化 (`powercfg /h off`)
-      - [x] **復元用メモ**: [wol-windows-revert.md](./wol-windows-revert.md) (やめたい時はこれを見て戻す)
-      - [x] PC BIOS で WoL 有効化: ASRock B760M-HDV/M.2 → ACPI Configuration → `PCIE Devices Power On = Enabled`
-      - [ ] Pi に `wakeonlan` 導入 + Pi → PC 起動テスト
-      - [ ] Pi → PC SSH 鍵認証 (OpenSSH Server を PC に導入)
-      - [ ] PC 側 `scrape-and-suspend.ps1` (scrape:all + mf:push-webull + suspend)
-      - [ ] Pi cron を WoL→SSH 起動オーケストレーションに置換 (旧 Webull only cron は廃止 or 並存)
-
-  - 構成 (最終形):
+  - 最終構成:
     ```
     Pi cron 07:00 / 15:35 / 22:30:
-      1. wakeonlan -i 192.168.0.255 9C:6B:00:B8:C6:B4
-      2. ssh <pc-user>@<pc-tailnet> "powershell -File scrape-and-suspend.ps1"
-      3. PC が scrape:all → POST /api/sync → mf:push-webull → suspend
-      4. Pi は受信した sync データを保存 / PWA で即閲覧可能
+      → /srv/asset-tracker/scripts/pi-wake-and-scrape.sh
+         1. wakeonlan -i 192.168.0.255 9C:6B:00:B8:C6:B4
+         2. SSH 22 が開くまで polling (最大 120s)
+         3. ssh guilt@100.99.142.112 'schtasks /Run /TN AssetTrackerScrape'
+            (fire-and-forget)
+      → PC Windows タスクスケジューラ AssetTrackerScrape (LogonType Interactive):
+         scripts\scrape-and-suspend.ps1 -SuspendAfter
+            1. node <絶対パス>\tsx\dist\cli.mjs apps\server\scripts\scrape-all.ts
+               (各 adapter 完了ごとに POST /api/sync で Pi へ反映)
+            2. node <絶対パス>\tsx\dist\cli.mjs apps\server\scripts\mf-push-webull.ts
+            3. 10 秒待って SetSuspendState (S3 スリープ)
     ```
 
-  - **moomoo の扱い**: OpenD は Linux ARM 非公式サポートなので PC 残し継続。将来 Pi で動くなら移行可
-  - **MF scrape も将来 Pi 移行可** (Xvfb + headful Playwright)、検出回避できれば PC 完全不要に
-  - **Webull 重複実行**: 現状 Pi cron x3 + PC scrape:all x2 で重複している。最終形では Pi cron Webull-only は廃止 (PC scrape:all が Webull も含めて 1 本化) を予定
-  - 別案 (Pi 無理な場合): Cloudflare R2 + Worker 静的配信 — まだ未採用
+  - 構築完了項目:
+    - [x] Pi 初期セットアップ `/srv/asset-tracker/` + systemd `asset-tracker.service`
+    - [x] `POST /api/sync` 実装 ([apps/server/src/routes/sync.ts](../../apps/server/src/routes/sync.ts)) + ScrapeRun 生成
+    - [x] PC → Pi 同期クライアント ([apps/server/src/sync-client.ts](../../apps/server/src/sync-client.ts)) + `SYNC_TARGET` env
+    - [x] WoL 環境構築 (PC NIC / BIOS / Pi `wakeonlan`)
+    - [x] PC OpenSSH Server + Pi → PC 公開鍵認証 (`administrators_authorized_keys`)
+    - [x] Windows タスクスケジューラ `AssetTrackerScrape` (`LogonType Interactive` + `RunLevel Highest`)
+    - [x] PC 側ラッパー [scripts/scrape-and-suspend.ps1](../../scripts/scrape-and-suspend.ps1)
+      - pnpm の Junction を SSH トークンが辿れない問題を、`tsx` 本体を `.pnpm` から絶対パスで起動する形で回避
+    - [x] Pi 側ラッパー [scripts/pi-wake-and-scrape.sh](../../scripts/pi-wake-and-scrape.sh)
+      - `--watch` で PC ログ tail / ServerAliveInterval で PC suspend 時の SSH ハング回避
+    - [x] Pi cron を WoL → SSH → schtasks 方式に置換 (旧 webull-run.ts 単独 cron は廃止)
+    - [x] Webull 重複実行解消 (PC scrape:all に集約)
+    - [x] mf:push-webull 自動化 (scrape-and-suspend.ps1 に組込済)
+
+  - 運用上の前提:
+    - PC に **一度ログオン**しておけば、以後はスリープ ↔ WoL ↔ scrape ↔ サスペンドが無人で回る (lock 画面でも user session は生存)
+    - **再起動後は手動ログオンが必要** (auto-login を選ばなかったため)
+    - 自動ログオン化したい場合は `netplwiz` で 「このコンピューターを使うには、ユーザー名とパスワードの入力が必要」を OFF。物理アクセス時の安全性が下がるトレードオフあり。完全無人化したい時に検討
+
+  - 将来オプション (未着手):
+    - **moomoo を Pi 移行**: OpenD が Linux ARM サポートされたら可
+    - **MF scrape を Pi 移行**: Xvfb + headful Playwright で検出回避できれば、PC 完全不要に
+    - **PWA「今すぐ scrape」ボタン**: PC が sleep でも PWA から WoL → 即時 scrape をトリガ可能 (現状は cron + 手動 SSH のみ)
+    - **PC 自動ログオン**: 完全無人運用にしたい場合の選択肢
 
 ### UI ルール (CLAUDE.md に記載)
 
