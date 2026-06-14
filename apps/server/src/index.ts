@@ -54,10 +54,10 @@ async function main(): Promise<void> {
   // dist が無い場合 (PWA ビルド前 / dev で vite dev 使用中) は配信スキップ。
   // SPA ルーティング (react-router) は 404 を index.html にフォールバックして解決。
   if (existsSync(PWA_DIST_PATH)) {
+    // decorateReply は明示 true (default)。404 fallback で reply.sendFile を使うため必須
     await app.register(fastifyStatic, {
       root: PWA_DIST_PATH,
       prefix: '/',
-      decorateReply: false,
     });
     app.setNotFoundHandler((req, reply) => {
       if (req.url.startsWith('/api/')) {
