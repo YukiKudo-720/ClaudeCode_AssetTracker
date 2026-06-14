@@ -53,6 +53,13 @@ export function registerSyncRoutes(app: FastifyInstance): void {
       getFxToJpy: createFxCache(logger),
     };
 
+    // PC 側で作られた ScrapeRun と等価な行を Pi 側にも残しておくと、SyncIndicator
+    // (/api/runs ベース) が最新 sync の時刻を表示できる。失敗時の status='error' は
+    // 持たない (PC 側が成功してから sync POST するため、ここに到達 = 成功扱い)。
+    const run = await prisma.scrapeRun.create({
+      data: { source, status: 'running' },
+    });
+
     let touched = 0;
     for (const upd of accountUpdates) {
       // institution は Institution 型として再キャスト (zod では string にしてある)
@@ -86,7 +93,12 @@ export function registerSyncRoutes(app: FastifyInstance): void {
       touched += 1;
     }
 
-    ctx.logger.info({ source, touched }, 'sync persist complete');
+    await prisma.scrapeRun.update({
+      where: { id: run.id },
+      data: { status: 'ok', finishedAt: new Date(), accountsTouched: touched },
+    });
+
+    ctx.logger.info({ source, touched, runId: run.id }, 'sync persist complete');
     return { ok: true, source, touched };
   });
 }
