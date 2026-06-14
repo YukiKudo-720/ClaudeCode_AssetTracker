@@ -17,6 +17,18 @@ import {
   type TodaiBigGroup,
 } from '@asset-tracker/shared';
 import { Plus, Pencil, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { SortControl } from '../components/SortControl.js';
+import { compareBy, type SortKey } from '../lib/sort.js';
+
+function sortTodaiAssets(items: TodaiAsset[], sortKey: SortKey): TodaiAsset[] {
+  const cmp = compareBy(sortKey);
+  return [...items].sort((a, b) =>
+    cmp(
+      { value: a.valueJpy, name: a.name, symbol: a.symbol },
+      { value: b.valueJpy, name: b.name, symbol: b.symbol },
+    ),
+  );
+}
 
 const GRAY = '#94a3b8';
 
@@ -66,6 +78,7 @@ export function Todai() {
   const deleteTag = useDeleteTodaiTag();
   const assign = useAssignTodaiTag();
   const setLev = useSetLeverage();
+  const [sortKey, setSortKey] = useState<SortKey>('value');
 
   const bigCats = useMemo(
     () => (data?.tags ?? []).filter((t) => t.parentId == null),
@@ -143,14 +156,16 @@ export function Todai() {
 
       {/* 資産別タグ付け (大カテゴリ別にグループ化、未分類は最下部) */}
       <section>
-        <h2 className="text-lg font-bold text-[var(--color-primary)] border-b-2 border-[var(--color-primary)] pb-1 mb-3">
-          資産別タグ付け
-        </h2>
+        <div className="flex items-baseline justify-between mb-3 border-b-2 border-[var(--color-primary)] pb-1">
+          <h2 className="text-lg font-bold text-[var(--color-primary)]">資産別タグ付け</h2>
+          <SortControl value={sortKey} onChange={setSortKey} />
+        </div>
         <div className="space-y-5">
           {orderedBigGroups.map((bg) => {
-            const groupAssets = data.assets
-              .filter((a) => bigIdOf(a.tagId) === bg.tagId)
-              .sort((x, y) => y.valueJpy - x.valueJpy);
+            const groupAssets = sortTodaiAssets(
+              data.assets.filter((a) => bigIdOf(a.tagId) === bg.tagId),
+              sortKey,
+            );
             if (groupAssets.length === 0) return null;
             return (
               <div

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useHoldings } from '../api/queries.js';
 import type { HoldingAgg } from '@asset-tracker/shared';
 import {
@@ -9,6 +9,18 @@ import {
   type Institution,
   type Region,
 } from '@asset-tracker/shared';
+import { SortControl } from '../components/SortControl.js';
+import { compareBy, type SortKey } from '../lib/sort.js';
+
+function sortHoldings(items: HoldingAgg[], sortKey: SortKey): HoldingAgg[] {
+  const cmp = compareBy(sortKey);
+  return [...items].sort((a, b) =>
+    cmp(
+      { value: a.totalValueJpy, name: a.name, symbol: a.symbol },
+      { value: b.totalValueJpy, name: b.name, symbol: b.symbol },
+    ),
+  );
+}
 
 const ASSET_CLASS_ORDER: AssetClass[] = [
   'cash',
@@ -108,6 +120,7 @@ function DayDiff({ current, prev }: { current: number; prev: number | null }) {
 
 export function Holdings() {
   const { data, isLoading, isError } = useHoldings();
+  const [sortKey, setSortKey] = useState<SortKey>('value');
 
   const grouped = useMemo(() => {
     if (!data) return new Map<string, HoldingAgg[]>();
@@ -141,10 +154,14 @@ export function Holdings() {
         </span>
       </div>
 
+      <div className="flex justify-end">
+        <SortControl value={sortKey} onChange={setSortKey} />
+      </div>
+
       {ASSET_CLASS_ORDER.map((ac) => {
         const items = grouped.get(ac);
         if (!items || items.length === 0) return null;
-        return <AssetClassSection key={ac} assetClass={ac} items={items} />;
+        return <AssetClassSection key={ac} assetClass={ac} items={items} sortKey={sortKey} />;
       })}
     </div>
   );
@@ -153,9 +170,11 @@ export function Holdings() {
 function AssetClassSection({
   assetClass,
   items,
+  sortKey,
 }: {
   assetClass: AssetClass;
   items: HoldingAgg[];
+  sortKey: SortKey;
 }) {
   const total = items.reduce((s, h) => s + h.totalValueJpy, 0);
   const title = ASSET_CLASS_LABELS[assetClass] ?? assetClass;
@@ -164,12 +183,13 @@ function AssetClassSection({
     return (
       <section>
         <Header title={title} count={items.length} total={total} />
-        <FxTable items={items} />
+        <FxTable items={items} sortKey={sortKey} />
       </section>
     );
   }
 
   if (assetClass === 'cash') {
+    // 通貨ブロック自体の並び順は常に金額順 (現金は名前/コードに意味が薄いため)
     const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
     return (
       <section>
@@ -219,8 +239,12 @@ function AssetClassSection({
           return (
             <div key={r}>
               <SubHeader label={label} count={subset.length} total={subTotal} />
-              {isMutualFund ? <MutualFundTable items={subset} /> : <SecurityTable items={subset} />}
-              <SecurityCardList items={subset} mutualFund={isMutualFund} />
+              {isMutualFund ? (
+                <MutualFundTable items={subset} sortKey={sortKey} />
+              ) : (
+                <SecurityTable items={subset} sortKey={sortKey} />
+              )}
+              <SecurityCardList items={subset} mutualFund={isMutualFund} sortKey={sortKey} />
             </div>
           );
         })}
@@ -256,8 +280,8 @@ function SubHeader({ label, count, total }: { label: string; count: number; tota
 // ---------- FX (個別株と同じ表現: Desktop table + Mobile cards) ----------
 // FX は marketValueJpy = 含み損益 そのもの (avgCost なし)。
 // 個別株の「評価額/前日比」セルと同じ見せ方を含み損益に適用する。
-function FxTable({ items }: { items: HoldingAgg[] }) {
-  const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
+function FxTable({ items, sortKey }: { items: HoldingAgg[]; sortKey: SortKey }) {
+  const sorted = sortHoldings(items, sortKey);
   return (
     <>
       {/* Desktop */}
@@ -372,8 +396,8 @@ function CurrencyCashTable({ item }: { item: HoldingAgg }) {
 }
 
 // ---------- Securities (stock/etf/reit/...) — Desktop table ----------
-function SecurityTable({ items }: { items: HoldingAgg[] }) {
-  const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
+function SecurityTable({ items, sortKey }: { items: HoldingAgg[]; sortKey: SortKey }) {
+  const sorted = sortHoldings(items, sortKey);
   return (
     <div className="hidden md:block overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-sm">
@@ -468,8 +492,8 @@ function AccountBreakdown({ h, mutualFund }: { h: HoldingAgg; mutualFund: boolea
   );
 }
 
-function MutualFundTable({ items }: { items: HoldingAgg[] }) {
-  const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
+function MutualFundTable({ items, sortKey }: { items: HoldingAgg[]; sortKey: SortKey }) {
+  const sorted = sortHoldings(items, sortKey);
   return (
     <div className="hidden md:block overflow-x-auto bg-[var(--color-bg-elevated)] rounded-lg border border-[var(--color-border)]">
       <table className="w-full text-sm">
@@ -530,8 +554,16 @@ function MutualFundTable({ items }: { items: HoldingAgg[] }) {
 }
 
 // ---------- Mobile card layout (stocks + mutual funds) ----------
-function SecurityCardList({ items, mutualFund }: { items: HoldingAgg[]; mutualFund: boolean }) {
-  const sorted = [...items].sort((a, b) => b.totalValueJpy - a.totalValueJpy);
+function SecurityCardList({
+  items,
+  mutualFund,
+  sortKey,
+}: {
+  items: HoldingAgg[];
+  mutualFund: boolean;
+  sortKey: SortKey;
+}) {
+  const sorted = sortHoldings(items, sortKey);
   const qtyDigits = mutualFund ? 0 : 4;
   return (
     <div className="md:hidden space-y-2">

@@ -1,7 +1,39 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useCategories } from '../api/queries.js';
-import { ASSET_CLASS_LABELS, type AssetClass, type CategoryAgg } from '@asset-tracker/shared';
+import {
+  ASSET_CLASS_LABELS,
+  type AssetClass,
+  type CategoryAgg,
+  type UntaggedSecurity,
+} from '@asset-tracker/shared';
 import { CategoryPie } from '../components/CategoryPie.js';
+import { SortControl } from '../components/SortControl.js';
+import { compareBy, type SortKey } from '../lib/sort.js';
+
+type CategorySecurity = CategoryAgg['securities'][number];
+
+function sortUntagged(items: UntaggedSecurity[], sortKey: SortKey): UntaggedSecurity[] {
+  const cmp = compareBy(sortKey);
+  return [...items].sort((a, b) =>
+    cmp(
+      { value: a.valueJpy, name: a.name, symbol: a.symbol },
+      { value: b.valueJpy, name: b.name, symbol: b.symbol },
+    ),
+  );
+}
+
+function sortCategorySecurities(
+  items: CategorySecurity[],
+  sortKey: SortKey,
+): CategorySecurity[] {
+  const cmp = compareBy(sortKey);
+  return [...items].sort((a, b) =>
+    cmp(
+      { value: a.weightedValueJpy, name: a.name, symbol: a.symbol },
+      { value: b.weightedValueJpy, name: b.name, symbol: b.symbol },
+    ),
+  );
+}
 
 function formatJpy(v: number): string {
   return `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
@@ -36,6 +68,12 @@ function DayDiff({ current, prev }: { current: number; prev: number | null }) {
 export function Categories() {
   const { data, isLoading, isError } = useCategories();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [sortKey, setSortKey] = useState<SortKey>('value');
+
+  const sortedUntagged = useMemo(
+    () => (data ? sortUntagged(data.untagged, sortKey) : []),
+    [data, sortKey],
+  );
 
   if (isLoading) return <p className="text-[var(--color-text-muted)]">読み込み中...</p>;
   if (isError || !data) return <p className="text-[var(--color-negative)]">API エラー</p>;
@@ -65,6 +103,10 @@ export function Categories() {
 
       <CategoryPie categories={data.categories} totalJpy={data.totalJpy} />
 
+      <div className="flex justify-end">
+        <SortControl value={sortKey} onChange={setSortKey} />
+      </div>
+
       <section>
         <h2 className="text-lg font-bold text-[var(--color-primary)] border-b-2 border-[var(--color-primary)] pb-1 mb-3">
           テーマ別配分
@@ -76,6 +118,7 @@ export function Categories() {
               cat={cat}
               isOpen={expanded.has(cat.id)}
               onToggle={() => toggle(cat.id)}
+              sortKey={sortKey}
             />
           ))}
         </ul>
@@ -99,7 +142,7 @@ export function Categories() {
                 </tr>
               </thead>
               <tbody>
-                {data.untagged.map((s) => (
+                {sortedUntagged.map((s) => (
                   <tr key={s.securityId} className="border-t border-[var(--color-border)]">
                     <td className="py-2 px-3 font-mono text-xs">{s.symbol}</td>
                     <td className="py-2 px-3">{s.name}</td>
@@ -115,7 +158,7 @@ export function Categories() {
 
           {/* Mobile: cards */}
           <div className="md:hidden space-y-2">
-            {data.untagged.map((s) => (
+            {sortedUntagged.map((s) => (
               <article
                 key={s.securityId}
                 className="bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-lg p-3"
@@ -144,11 +187,14 @@ function CategoryRow({
   cat,
   isOpen,
   onToggle,
+  sortKey,
 }: {
   cat: CategoryAgg;
   isOpen: boolean;
   onToggle: () => void;
+  sortKey: SortKey;
 }) {
+  const sortedSecurities = sortCategorySecurities(cat.securities, sortKey);
   return (
     <li className="bg-[var(--color-bg-elevated)] border border-[var(--color-border)] rounded-lg">
       <button
@@ -192,7 +238,7 @@ function CategoryRow({
                 </tr>
               </thead>
               <tbody>
-                {cat.securities.map((s) => (
+                {sortedSecurities.map((s) => (
                   <tr key={s.securityId} className="border-t border-[var(--color-border)]">
                     <td className="py-1 font-mono text-xs">{s.symbol}</td>
                     <td className="py-1">{s.name}</td>
@@ -216,7 +262,7 @@ function CategoryRow({
 
           {/* Mobile: cards */}
           <div className="md:hidden p-2 space-y-2">
-            {cat.securities.map((s) => (
+            {sortedSecurities.map((s) => (
               <div
                 key={s.securityId}
                 className="bg-[var(--color-bg)] rounded p-2 border border-[var(--color-border)]"
