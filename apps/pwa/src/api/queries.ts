@@ -156,3 +156,15 @@ export function useRunNow() {
     },
   });
 }
+
+// Pi 専用: WoL → SSH → PC で scrape:all + mf:push-webull を起こす。
+// fire-and-forget。完了は /api/runs を polling して判定する。
+export function useWakePc() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ status: string; startedAt: string }>('/api/wake-pc', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
+  });
+}

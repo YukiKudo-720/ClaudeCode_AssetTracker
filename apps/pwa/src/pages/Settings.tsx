@@ -1,19 +1,73 @@
-import { useState } from 'react';
-import { getEndpoint, setEndpoint, getToken, setToken } from '../api/client.js';
-import { useRunNow, useFxRates } from '../api/queries.js';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import type { ScrapeRunSummary } from '@asset-tracker/shared';
+import { apiFetch, getEndpoint, setEndpoint, getToken, setToken } from '../api/client.js';
+import { useWakePc, useFxRates } from '../api/queries.js';
+
+// PC で走る adapter 数 (mf + webull + moomoo) — wake-pc 完了判定に使う
+const EXPECTED_ADAPTERS = 3;
+// 10 分応答なしならタイムアウト扱い
+const WAKE_PC_TIMEOUT_MS = 10 * 60 * 1000;
+// /api/runs polling 間隔 (実行中のみ)
+const RUNS_POLL_MS = 10_000;
 
 export function Settings() {
   const [endpoint, setEndpointState] = useState(() => getEndpoint());
   const [token, setTokenState] = useState(() => getToken());
   const [saved, setSaved] = useState(false);
-  const runNow = useRunNow();
+  const [triggeredAt, setTriggeredAt] = useState<number | null>(null);
+  const [tick, setTick] = useState(0);
+  const wakePc = useWakePc();
   const fx = useFxRates();
+
+  // 実行中だけ /api/runs を polling
+  const runs = useQuery({
+    queryKey: ['runs'],
+    queryFn: () => apiFetch<ScrapeRunSummary[]>('/api/runs'),
+    refetchInterval: triggeredAt !== null ? RUNS_POLL_MS : false,
+  });
+
+  // triggeredAt 以降に完了 (ok / error) した run 一覧
+  const completedAfterTrigger = useMemo(() => {
+    if (triggeredAt === null || !runs.data) return [];
+    return runs.data.filter(
+      (r) =>
+        new Date(r.startedAt).getTime() >= triggeredAt &&
+        r.finishedAt != null &&
+        (r.status === 'ok' || r.status === 'error'),
+    );
+  }, [triggeredAt, runs.data]);
+
+  const elapsedSec = triggeredAt !== null ? Math.floor((Date.now() - triggeredAt) / 1000) : 0;
+  void tick; // re-render trigger; elapsedSec を更新するため
+  const isDone = triggeredAt !== null && completedAfterTrigger.length >= EXPECTED_ADAPTERS;
+  const isTimedOut =
+    triggeredAt !== null && !isDone && Date.now() - triggeredAt >= WAKE_PC_TIMEOUT_MS;
+  const isRunning = triggeredAt !== null && !isDone && !isTimedOut;
+
+  // 1秒ごとに re-render して elapsed time を更新
+  useEffect(() => {
+    if (!isRunning) return;
+    const id = window.setInterval(() => setTick((t) => t + 1), 1000);
+    return () => window.clearInterval(id);
+  }, [isRunning]);
 
   function handleSave() {
     setEndpoint(endpoint.trim());
     setToken(token.trim());
     setSaved(true);
     setTimeout(() => setSaved(false), 1500);
+  }
+
+  function handleWakePc() {
+    setTriggeredAt(Date.now());
+    wakePc.mutate(undefined);
+  }
+
+  function formatElapsed(sec: number): string {
+    const m = Math.floor(sec / 60);
+    const s = sec % 60;
+    return `${m}分${String(s).padStart(2, '0')}秒`;
   }
 
   return (
@@ -99,17 +153,70 @@ export function Settings() {
       <section>
         <h2 className="text-base font-semibold mb-3">手動同期</h2>
         <button
-          onClick={() => runNow.mutate(undefined)}
-          disabled={runNow.isPending}
+          onClick={handleWakePc}
+          disabled={wakePc.isPending || isRunning}
           className="px-4 py-2 bg-[var(--color-accent)] text-[var(--color-primary)] rounded font-medium disabled:opacity-50"
         >
-          {runNow.isPending ? '実行中…' : '今すぐスクレイピング'}
+          {isRunning
+            ? `実行中… ${formatElapsed(elapsedSec)}`
+            : '今すぐスクレイピング (PC を起こす)'}
         </button>
-        {runNow.isError && (
-          <p className="mt-2 text-sm text-[var(--color-negative)]">エラー: {runNow.error.message}</p>
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          PC を WoL で起こして MF / Webull / moomoo を全件取得します。完了まで 3〜5 分程度。
+        </p>
+
+        {wakePc.isError && (
+          <p className="mt-2 text-sm text-[var(--color-negative)]">
+            起動失敗: {wakePc.error.message}
+          </p>
         )}
-        {runNow.isSuccess && (
-          <p className="mt-2 text-sm text-[var(--color-positive)]">キュー投入済 (runId: {runNow.data.runId})</p>
+
+        {isRunning && (
+          <div className="mt-3 p-3 border border-[var(--color-border)] bg-[var(--color-bg-elevated)] rounded text-sm">
+            <p>PC を起こして scrape 中…</p>
+            <p className="text-xs text-[var(--color-text-muted)] mt-1">
+              進捗: {completedAfterTrigger.length}/{EXPECTED_ADAPTERS} 完了 (
+              {formatElapsed(elapsedSec)} 経過)
+            </p>
+          </div>
+        )}
+
+        {isDone && (
+          <div className="mt-3 p-3 border border-[var(--color-positive)] bg-[var(--color-positive)]/10 rounded text-sm text-[var(--color-positive)]">
+            <p className="font-medium">✓ 完了 ({formatElapsed(elapsedSec)})</p>
+            <ul className="mt-1 text-xs">
+              {completedAfterTrigger.map((r) => (
+                <li key={r.id}>
+                  {r.source}: {r.status}
+                  {r.errorMsg ? ` (${r.errorMsg.slice(0, 60)})` : ''}
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              onClick={() => setTriggeredAt(null)}
+              className="mt-2 text-xs underline"
+            >
+              閉じる
+            </button>
+          </div>
+        )}
+
+        {isTimedOut && (
+          <div className="mt-3 p-3 border border-[var(--color-negative)] bg-[var(--color-negative)]/10 rounded text-sm text-[var(--color-negative)]">
+            <p>⚠ タイムアウト (10 分以上応答なし)</p>
+            <p className="mt-1 text-xs">
+              PC が起動できなかった可能性があります。完了 {completedAfterTrigger.length}/
+              {EXPECTED_ADAPTERS}。
+            </p>
+            <button
+              type="button"
+              onClick={() => setTriggeredAt(null)}
+              className="mt-2 text-xs underline"
+            >
+              閉じる
+            </button>
+          </div>
         )}
       </section>
     </div>
