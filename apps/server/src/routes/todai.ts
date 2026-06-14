@@ -38,6 +38,7 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
         holding: {
           include: {
             security: { include: { categories: { include: { category: true } } } },
+            account: true,
           },
         },
       },
@@ -49,19 +50,32 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       (x, y) =>
         x.holding.security.createdAt.getTime() - y.holding.security.createdAt.getTime(),
     );
+    interface AccountBreakdown {
+      accountId: string;
+      institution: string;
+      label: string;
+      quantity: number;
+      avgCostNative: number | null;
+      valueJpy: number;
+      costJpy: number;
+    }
     interface SecAgg {
       securityId: string; // canonical (= 最古) の Security.id
       symbol: string;
+      currency: string;
       name: string;
       assetClass: string;
+      totalQuantity: number;
       valueJpy: number;
       costJpy: number;
       tagId: string | null;
       leverage: number;
+      accounts: AccountBreakdown[];
     }
     const secMap = new Map<string, SecAgg>();
     for (const hs of snapshots) {
       const sec = hs.holding.security;
+      const a = hs.holding.account;
       const v = Number(hs.marketValueJpy);
       const qty = Number(hs.quantity);
       const priceNative = Number(hs.marketPriceNative);
@@ -76,12 +90,15 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
         agg = {
           securityId: sec.id,
           symbol: sec.symbol,
+          currency: sec.currency,
           name: sec.name,
           assetClass: sec.assetClass,
+          totalQuantity: 0,
           valueJpy: 0,
           costJpy: 0,
           tagId: todaiLink?.categoryId ?? null,
           leverage: sec.leverage,
+          accounts: [],
         };
         secMap.set(key, agg);
       } else if (agg.tagId == null) {
@@ -89,8 +106,18 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
         const todaiLink = sec.categories.find((c) => c.category.kind === TODAI_KIND);
         if (todaiLink) agg.tagId = todaiLink.categoryId;
       }
+      agg.totalQuantity += qty;
       agg.valueJpy += v;
       agg.costJpy += cost;
+      agg.accounts.push({
+        accountId: a.id,
+        institution: a.institution,
+        label: a.label,
+        quantity: qty,
+        avgCostNative,
+        valueJpy: v,
+        costJpy: cost,
+      });
     }
 
     const totalJpy = Array.from(secMap.values()).reduce((s, a) => s + a.valueJpy, 0);
@@ -101,12 +128,23 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
         symbol: a.symbol,
         name: a.name,
         assetClass: a.assetClass,
+        currency: a.currency,
         valueJpy: a.valueJpy,
         ratio: totalJpy > 0 ? a.valueJpy / totalJpy : 0,
         tagId: a.tagId,
         leverage: a.leverage,
+        totalQuantity: a.totalQuantity,
+        totalCostJpy: a.costJpy,
         unrealizedPnlJpy: a.costJpy > 0 ? a.valueJpy - a.costJpy : null,
         unrealizedPnlRatio: a.costJpy > 0 ? (a.valueJpy - a.costJpy) / a.costJpy : null,
+        accounts: a.accounts
+          .map((acc) => ({
+            ...acc,
+            unrealizedPnlJpy: acc.costJpy > 0 ? acc.valueJpy - acc.costJpy : null,
+            unrealizedPnlRatio:
+              acc.costJpy > 0 ? (acc.valueJpy - acc.costJpy) / acc.costJpy : null,
+          }))
+          .sort((x, y) => y.valueJpy - x.valueJpy),
       }))
       .sort((a, b) => b.valueJpy - a.valueJpy);
 

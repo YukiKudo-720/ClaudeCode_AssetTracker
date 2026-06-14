@@ -257,19 +257,41 @@ export const TodaiBigGroupSchema = z.object({
 });
 export type TodaiBigGroup = z.infer<typeof TodaiBigGroupSchema>;
 
+export const TodaiAccountBreakdownSchema = z.object({
+  accountId: z.string(),
+  institution: z.string(),
+  label: z.string(),
+  quantity: z.number(),
+  // native 通貨建ての平均取得単価 (持ち越し銘柄等で取得していなければ null)
+  avgCostNative: z.number().nullable(),
+  // 評価額 (JPY 換算)
+  valueJpy: z.number(),
+  // 取得額 (JPY 換算)。avgCost が null なら 0
+  costJpy: z.number(),
+  unrealizedPnlJpy: z.number().nullable(),
+  unrealizedPnlRatio: z.number().nullable(),
+});
+export type TodaiAccountBreakdown = z.infer<typeof TodaiAccountBreakdownSchema>;
+
 export const TodaiAssetSchema = z.object({
   securityId: z.string(),
   symbol: z.string(),
   name: z.string(),
   assetClass: z.string(),
+  currency: z.string(),
   valueJpy: z.number(),
   ratio: z.number(),
   tagId: z.string().nullable(),
   // レバレッジ倍率。現物=1, ブル=正, ベア=負
   leverage: z.number(),
+  // 取得金額 (JPY 換算 / 全口座合算)
+  totalCostJpy: z.number(),
+  totalQuantity: z.number(),
   // 含み損益 (口座またぎ集計、avgCost が無ければ null)
   unrealizedPnlJpy: z.number().nullable(),
   unrealizedPnlRatio: z.number().nullable(),
+  // 口座別ブレークダウン (折りたたみ表示用)
+  accounts: z.array(TodaiAccountBreakdownSchema),
 });
 export type TodaiAsset = z.infer<typeof TodaiAssetSchema>;
 

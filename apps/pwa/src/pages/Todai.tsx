@@ -11,7 +11,9 @@ import {
 import { pickColor } from '../lib/colors.js';
 import {
   ASSET_CLASS_LABELS,
+  INSTITUTION_LABELS,
   type AssetClass,
+  type Institution,
   type TodaiTag,
   type TodaiAsset,
   type TodaiBigGroup,
@@ -35,6 +37,30 @@ const GRAY = '#94a3b8';
 function formatJpy(v: number): string {
   return `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
 }
+
+function formatSignedJpy(v: number): string {
+  const sign = v >= 0 ? '+' : '−';
+  return `${sign}¥${Math.abs(v).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`;
+}
+
+const CURRENCY_SIGN: Record<string, string> = {
+  JPY: '¥',
+  USD: '$',
+  HKD: 'HK$',
+  EUR: '€',
+  CNY: 'CN¥',
+  CNH: 'CN¥',
+};
+
+function formatNative(amount: number, currency: string): string {
+  const sign = CURRENCY_SIGN[currency] ?? `${currency} `;
+  const decimals = currency === 'JPY' ? 0 : 2;
+  return `${sign}${amount.toLocaleString('ja-JP', {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  })}`;
+}
+
 
 // 640px 以下をモバイル扱い
 function useIsMobile(): boolean {
@@ -319,51 +345,117 @@ function AssetRow({
         </div>
       </div>
 
-      {/* 詳細 (折りたたみ) */}
+      {/* 詳細 (折りたたみ): レバ → 全体 → 口座別 の 3 ブロックを border-t で区切る */}
       {open && (
-        <div className="border-t border-[var(--color-border)] px-3 py-2 text-sm space-y-1.5">
-          {/* レバ比率の編集 */}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[var(--color-text-muted)]">レバ比率</span>
-            <div className="flex items-center gap-2">
-              <span className={levLabelCls}>{leverageLabel(a.leverage)}</span>
-              <input
-                type="number"
-                step="0.1"
-                className="w-16 px-1 py-0.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-xs text-right tabular-nums"
-                value={levText}
-                disabled={disabled}
-                onChange={(e) => setLevText(e.target.value)}
-                onBlur={commitLev}
-                onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
-                title="現物=1, 3倍ブル=3, 3倍ベア=-3"
-              />
+        <div className="border-t border-[var(--color-border)] px-3 py-2.5 text-sm space-y-2.5">
+          {/* ── レバ比率 (編集可) + レバ込 ── */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[var(--color-text-muted)]">レバ比率</span>
+              <div className="flex items-center gap-2">
+                <span className={levLabelCls}>{leverageLabel(a.leverage)}</span>
+                <input
+                  type="number"
+                  step="0.1"
+                  className="w-16 px-1 py-0.5 border border-[var(--color-border)] rounded bg-[var(--color-bg)] text-xs text-right tabular-nums"
+                  value={levText}
+                  disabled={disabled}
+                  onChange={(e) => setLevText(e.target.value)}
+                  onBlur={commitLev}
+                  onKeyDown={(e) => e.key === 'Enter' && (e.target as HTMLInputElement).blur()}
+                  title="現物=1, 3倍ブル=3, 3倍ベア=-3"
+                />
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[var(--color-text-muted)]">レバ込</span>
+              <span className="tabular-nums">
+                {formatJpy(effJpy)}
+                <span className="text-xs text-[var(--color-text-muted)] ml-2">
+                  ({(effRatio * 100).toFixed(2)}%)
+                </span>
+              </span>
             </div>
           </div>
-          {/* レバ込 (実効エクスポージャー) */}
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-[var(--color-text-muted)]">レバ込</span>
-            <span className="tabular-nums">
-              {formatJpy(effJpy)}
-              <span className="text-xs text-[var(--color-text-muted)] ml-2">
-                ({(effRatio * 100).toFixed(2)}%)
-              </span>
-            </span>
-          </div>
-          {/* 損益 */}
-          {pnl != null && (
+
+          {/* ── 全体 (取得金額 + 損益) ── */}
+          <div className="border-t border-[var(--color-border)] pt-2 space-y-1.5">
             <div className="flex items-center justify-between gap-3">
-              <span className="text-[var(--color-text-muted)]">損益</span>
-              <span className={`tabular-nums ${pnlCls}`}>
-                {pnl >= 0 ? '+' : '−'}¥
-                {Math.abs(pnl).toLocaleString('ja-JP', { maximumFractionDigits: 0 })}
-                {pnlRatio != null && (
-                  <span className="text-xs ml-2 opacity-80">
-                    ({pnl >= 0 ? '+' : ''}
-                    {(pnlRatio * 100).toFixed(2)}%)
-                  </span>
-                )}
+              <span className="text-[var(--color-text-muted)]">取得金額 (全体)</span>
+              <span className="tabular-nums">
+                {a.totalCostJpy > 0 ? formatJpy(a.totalCostJpy) : '—'}
               </span>
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[var(--color-text-muted)]">損益 (全体)</span>
+              {pnl != null ? (
+                <span className={`tabular-nums ${pnlCls}`}>
+                  {formatSignedJpy(pnl)}
+                  {pnlRatio != null && (
+                    <span className="text-xs ml-2 opacity-80">
+                      ({pnl >= 0 ? '+' : ''}
+                      {(pnlRatio * 100).toFixed(2)}%)
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-[var(--color-text-muted)]">—</span>
+              )}
+            </div>
+          </div>
+
+          {/* ── 口座別ブレークダウン ── */}
+          {a.accounts.length > 0 && (
+            <div className="border-t border-[var(--color-border)] pt-2">
+              <div className="text-xs text-[var(--color-text-muted)] mb-1.5">口座別</div>
+              <div className="space-y-2">
+                {a.accounts.map((acc) => {
+                  const accPnl = acc.unrealizedPnlJpy;
+                  const accPnlRatio = acc.unrealizedPnlRatio;
+                  const accPnlCls =
+                    accPnl == null
+                      ? ''
+                      : accPnl >= 0
+                        ? 'text-[var(--color-positive)]'
+                        : 'text-[var(--color-negative)]';
+                  return (
+                    <div
+                      key={acc.accountId}
+                      className="bg-[var(--color-bg)] rounded p-2 border border-[var(--color-border)] text-xs grid grid-cols-2 gap-x-3 gap-y-1"
+                    >
+                      <div className="col-span-2 font-medium text-sm">
+                        {INSTITUTION_LABELS[acc.institution as Institution] ?? acc.institution}
+                      </div>
+                      <span className="text-[var(--color-text-muted)]">数量</span>
+                      <span className="tabular-nums text-right">
+                        {acc.quantity.toLocaleString('ja-JP', { maximumFractionDigits: 4 })}
+                      </span>
+                      <span className="text-[var(--color-text-muted)]">平均取得単価</span>
+                      <span className="tabular-nums text-right">
+                        {acc.avgCostNative != null
+                          ? formatNative(acc.avgCostNative, a.currency)
+                          : '—'}
+                      </span>
+                      <span className="text-[var(--color-text-muted)]">取得額</span>
+                      <span className="tabular-nums text-right">
+                        {acc.costJpy > 0 ? formatJpy(acc.costJpy) : '—'}
+                      </span>
+                      <span className="text-[var(--color-text-muted)]">評価額</span>
+                      <span className="tabular-nums text-right">{formatJpy(acc.valueJpy)}</span>
+                      <span className="text-[var(--color-text-muted)]">損益</span>
+                      <span className={`tabular-nums text-right ${accPnlCls}`}>
+                        {accPnl != null ? formatSignedJpy(accPnl) : '—'}
+                        {accPnlRatio != null && (
+                          <span className="text-[10px] ml-1 opacity-80">
+                            ({accPnl != null && accPnl >= 0 ? '+' : ''}
+                            {(accPnlRatio * 100).toFixed(2)}%)
+                          </span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </div>
