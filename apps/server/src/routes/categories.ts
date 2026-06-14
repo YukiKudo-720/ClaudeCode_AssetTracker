@@ -28,17 +28,23 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
       select: { capturedDate: true },
     });
 
-    // 前日 snapshot を securityId -> sum(marketValueJpy) でマップ化
-    const prevValueBySecurity = new Map<string, number>();
+    // 前日 snapshot を (symbol, currency) -> sum(marketValueJpy) でマップ化。
+    // adapter ごとの exchange 差で Security が割れていても、PWA 表示は (symbol, currency) で 1 行にまとめる。
+    const prevValueBySymCur = new Map<string, number>();
     if (prev) {
       const prevSnapshots = await prisma.holdingSnapshot.findMany({
         where: { capturedDate: prev.capturedDate },
-        include: { holding: { select: { securityId: true } } },
+        include: {
+          holding: {
+            include: { security: { select: { symbol: true, currency: true } } },
+          },
+        },
       });
       for (const ps of prevSnapshots) {
-        const sid = ps.holding.securityId;
+        const sec = ps.holding.security;
+        const key = `${sec.symbol}|${sec.currency}`;
         const v = Number(ps.marketValueJpy);
-        prevValueBySecurity.set(sid, (prevValueBySecurity.get(sid) ?? 0) + v);
+        prevValueBySymCur.set(key, (prevValueBySymCur.get(key) ?? 0) + v);
       }
     }
 
@@ -98,12 +104,18 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
       });
     }
 
-    // Security 単位に集約 (口座またぎ)
+    // (symbol, currency) 単位に集約 (口座またぎ + adapter ごとの exchange 差を吸収)。
+    // canonical (= 最古の Security) を先に確定するため createdAt 昇順でソートしてから iterate。
+    snapshots.sort(
+      (x, y) =>
+        x.holding.security.createdAt.getTime() - y.holding.security.createdAt.getTime(),
+    );
     const secAggMap = new Map<
       string,
       {
         secId: string;
         symbol: string;
+        currency: string;
         name: string;
         assetClass: string;
         valueJpy: number;
@@ -113,17 +125,27 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
     for (const hs of snapshots) {
       const sec = hs.holding.security;
       const valueJpy = Number(hs.marketValueJpy);
-      let agg = secAggMap.get(sec.id);
+      const key = `${sec.symbol}|${sec.currency}`;
+      let agg = secAggMap.get(key);
       if (!agg) {
         agg = {
           secId: sec.id,
           symbol: sec.symbol,
+          currency: sec.currency,
           name: sec.name,
           assetClass: sec.assetClass,
           valueJpy: 0,
           categories: sec.categories.map((c) => ({ id: c.categoryId, weight: Number(c.weight) })),
         };
-        secAggMap.set(sec.id, agg);
+        secAggMap.set(key, agg);
+      } else {
+        // 同一 (symbol, currency) の 2 つ目以降の Security: タグ付けが分散している可能性が
+        // あるので union で取り込む (同じ category id は重複させない)。
+        for (const c of sec.categories) {
+          if (!agg.categories.some((existing) => existing.id === c.categoryId)) {
+            agg.categories.push({ id: c.categoryId, weight: Number(c.weight) });
+          }
+        }
       }
       agg.valueJpy += valueJpy;
     }
@@ -151,7 +173,7 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
         untaggedJpy += sec.valueJpy;
         continue;
       }
-      const prevSecValue = prevValueBySecurity.get(sec.secId) ?? 0;
+      const prevSecValue = prevValueBySymCur.get(`${sec.symbol}|${sec.currency}`) ?? 0;
       for (const link of sec.categories) {
         const cat = catMap.get(link.id);
         if (!cat) continue;

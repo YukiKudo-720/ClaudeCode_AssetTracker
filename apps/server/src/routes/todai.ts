@@ -43,9 +43,14 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       },
     });
 
-    // Security 単位に集約 (口座またぎ) + todai タグ抽出
+    // (symbol, currency) 単位に集約 (口座またぎ + adapter ごとの exchange 差を吸収) + todai タグ抽出。
+    // canonical (= 最古の Security) を採用するため createdAt 昇順でソートしてから iterate。
+    snapshots.sort(
+      (x, y) =>
+        x.holding.security.createdAt.getTime() - y.holding.security.createdAt.getTime(),
+    );
     interface SecAgg {
-      securityId: string;
+      securityId: string; // canonical (= 最古) の Security.id
       symbol: string;
       name: string;
       assetClass: string;
@@ -64,7 +69,8 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       // 簡易 fx: 価値JPY / (数量 × 単価native)
       const fx = qty > 0 && priceNative > 0 ? v / (qty * priceNative) : 1;
       const cost = avgCostNative != null ? avgCostNative * qty * fx : 0;
-      let agg = secMap.get(sec.id);
+      const key = `${sec.symbol}|${sec.currency}`;
+      let agg = secMap.get(key);
       if (!agg) {
         const todaiLink = sec.categories.find((c) => c.category.kind === TODAI_KIND);
         agg = {
@@ -77,7 +83,11 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
           tagId: todaiLink?.categoryId ?? null,
           leverage: sec.leverage,
         };
-        secMap.set(sec.id, agg);
+        secMap.set(key, agg);
+      } else if (agg.tagId == null) {
+        // canonical が未タグでも、他の duplicate Security が既にタグ付けされていれば採用
+        const todaiLink = sec.categories.find((c) => c.category.kind === TODAI_KIND);
+        if (todaiLink) agg.tagId = todaiLink.categoryId;
       }
       agg.valueJpy += v;
       agg.costJpy += cost;

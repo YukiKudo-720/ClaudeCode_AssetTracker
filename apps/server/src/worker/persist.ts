@@ -45,24 +45,29 @@ export async function persistAccountUpdate(
   const accountFx = await ctx.getFxToJpy(update.baseCurrency);
 
   for (const h of update.holdings) {
-    // Security の upsert: exchange が nullable な複合 unique のため
-    // Prisma の upsert は null をうまく扱えない (null !== '' で毎回新規作成される) →
-    // findFirst + create/update のフォールバックで対処
+    // Security の lookup: スキーマ上の unique は (symbol, exchange) だが、adapter ごとに
+    // exchange の表記が分かれて (e.g. Webull='NASDAQ' / MF=null) 同じ銘柄が
+    // 2 つの Security レコードに割れる事故が発生する。1 銘柄 = 1 行 の原則を保つため、
+    // ここでは (symbol, currency) で既存を検索し、最古のレコードを canonical として再利用する。
     const exchangeValue = h.exchange ?? null;
     let security = await prisma.security.findFirst({
-      where: { symbol: h.symbol, exchange: exchangeValue },
+      where: { symbol: h.symbol, currency: h.currency },
+      orderBy: { createdAt: 'asc' },
     });
     if (security) {
-      // 既存 Security の分類 (currency/assetClass/region/sector) も最新の adapter
-      // 判定で更新する。ETF 判定改善や region 推定改善が即反映される
+      // 既存 Security の分類 (assetClass/region/sector/name) は最新 adapter で更新。
+      // exchange は canonical 側が null で adapter が値を持ってきたときだけ埋める
+      // (上書きで「NASDAQ → null」みたいな退化を防ぐ)。
       security = await prisma.security.update({
         where: { id: security.id },
         data: {
           name: h.name,
-          currency: h.currency,
           assetClass: h.assetClass,
           region: h.region ?? null,
           sector: h.sector ?? null,
+          ...(security.exchange == null && exchangeValue != null
+            ? { exchange: exchangeValue }
+            : {}),
           updatedAt: new Date(),
         },
       });

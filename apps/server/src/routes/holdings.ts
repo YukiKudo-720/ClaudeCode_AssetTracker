@@ -29,17 +29,24 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       },
     });
 
-    // 前日 snapshot を securityId -> sum(marketValueJpy) でマップ化
-    const prevValueBySecurity = new Map<string, number>();
+    // 前日 snapshot を (symbol, currency) -> sum(marketValueJpy) でマップ化。
+    // securityId ではなく (symbol, currency) を key にするのは、adapter ごとの exchange 表記差で
+    // Security が割れて 2 行になる事故 (e.g. MVLL が SBI/MF=null, Webull='NASDAQ') を吸収するため。
+    const prevValueBySymCur = new Map<string, number>();
     if (prev) {
       const prevSnapshots = await prisma.holdingSnapshot.findMany({
         where: { capturedDate: prev.capturedDate },
-        include: { holding: { select: { securityId: true } } },
+        include: {
+          holding: {
+            include: { security: { select: { symbol: true, currency: true } } },
+          },
+        },
       });
       for (const ps of prevSnapshots) {
-        const sid = ps.holding.securityId;
+        const sec = ps.holding.security;
+        const key = `${sec.symbol}|${sec.currency}`;
         const v = Number(ps.marketValueJpy);
-        prevValueBySecurity.set(sid, (prevValueBySecurity.get(sid) ?? 0) + v);
+        prevValueBySymCur.set(key, (prevValueBySymCur.get(key) ?? 0) + v);
       }
     }
 
@@ -66,6 +73,13 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       accounts: Acc[];
     };
 
+    // canonical (= 最古) を先に確定させるため Security.createdAt 昇順でソート。
+    // 後続イテレーションで最初に登録された Security のメタデータが採用される。
+    snapshots.sort(
+      (x, y) =>
+        x.holding.security.createdAt.getTime() - y.holding.security.createdAt.getTime(),
+    );
+
     const map = new Map<string, Agg>();
     for (const hs of snapshots) {
       const s = hs.holding.security;
@@ -77,7 +91,8 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       const fx = qty > 0 && priceNative > 0 ? valueJpy / (qty * priceNative) : 1;
       const costJpy = avgCostNative != null ? avgCostNative * qty * fx : 0;
 
-      let agg = map.get(s.id);
+      const key = `${s.symbol}|${s.currency}`;
+      let agg = map.get(key);
       if (!agg) {
         agg = {
           securityId: s.id,
@@ -93,7 +108,7 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
           totalCostJpy: 0,
           accounts: [],
         };
-        map.set(s.id, agg);
+        map.set(key, agg);
       }
       agg.totalQuantity += qty;
       agg.totalValueJpy += valueJpy;
@@ -117,7 +132,7 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
         unrealizedPnlJpy: h.totalCostJpy > 0 ? h.totalValueJpy - h.totalCostJpy : null,
         unrealizedPnlRatio:
           h.totalCostJpy > 0 ? (h.totalValueJpy - h.totalCostJpy) / h.totalCostJpy : null,
-        prevTotalValueJpy: prevValueBySecurity.get(h.securityId) ?? null,
+        prevTotalValueJpy: prevValueBySymCur.get(`${h.symbol}|${h.currency}`) ?? null,
       }))
       .sort((a, b) => b.totalValueJpy - a.totalValueJpy);
 
