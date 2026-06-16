@@ -152,11 +152,11 @@ export function History() {
 
       {data && data.points.length > 0 && (
       <div className="flex flex-col md:flex-row md:items-stretch gap-3">
-        <div className="bg-[var(--color-bg-elevated)] rounded-lg p-2 md:p-4 border border-[var(--color-border)] h-64 md:h-[28rem] md:flex-1 min-w-0">
+        <div className="bg-[var(--color-bg-elevated)] rounded-lg px-1 py-2 md:p-4 border border-[var(--color-border)] h-64 md:h-[28rem] md:flex-1 min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart
               data={data.points}
-              margin={{ top: 30, right: 8, bottom: 10, left: 0 }}
+              margin={{ top: 30, right: 4, bottom: 10, left: 0 }}
               onMouseMove={(e: { activePayload?: Array<{ payload?: HistoryTotalPoint }> }) => {
                 const p = e?.activePayload?.[0]?.payload;
                 if (p) setHoverPoint(p);
@@ -173,8 +173,11 @@ export function History() {
               <YAxis
                 stroke="var(--color-text-muted)"
                 tick={{ fontSize: 11 }}
+                width={56}
                 tickFormatter={(v: number) =>
-                  v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}k`
+                  v >= 10000
+                    ? `${Math.round(v / 10000).toLocaleString('ja-JP')}万円`
+                    : `${v}`
                 }
               />
               {/* 表示はグラフ下の固定パネル (HoverPanel) でするので、Tooltip 自体は
@@ -186,10 +189,15 @@ export function History() {
               <Legend
                 align="center"
                 verticalAlign="bottom"
+                iconType="square"
                 wrapperStyle={{
                   fontSize: '12px',
                   cursor: 'pointer',
                   width: '100%',
+                  left: 0,
+                  right: 0,
+                  paddingLeft: 0,
+                  paddingRight: 0,
                   textAlign: 'center',
                 }}
                 onClick={(e: unknown) => {
