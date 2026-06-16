@@ -10,6 +10,7 @@ import { postSync } from '../sync-client.js';
 import type { Adapter, AdapterContext } from '../adapters/types.js';
 import { NeedsLoginError } from '../adapters/types.js';
 import { persistAccountUpdate } from './persist.js';
+import { toJstDateString } from '../lib/date.js';
 
 const ADAPTERS: Record<DataSource, Adapter | null> = {
   moneyforward: moneyforwardAdapter,
@@ -80,8 +81,83 @@ export async function runAdapter(source: DataSource): Promise<RunResult> {
       data: { status, finishedAt: new Date(), errorMsg: msg },
     });
     logger.error({ err, source }, 'adapter run failed');
+
+    // adapter 失敗時の carry-over: その source の Account について、当日
+    // AccountSnapshot が無いものを前日値で埋める。失敗が続く間も前日比が
+    // 連続性を保てる (= 「Webull 復活で +80 万」みたいな誤差分を防ぐ)。
+    try {
+      const copied = await carryOverFailedSource(source);
+      if (copied > 0) {
+        logger.info({ source, copied }, 'carried over from previous day after adapter failure');
+      }
+    } catch (carryErr) {
+      logger.warn({ err: carryErr, source }, 'carry-over failed (non-fatal)');
+    }
+
     return { runId: run.id, source, status, accountsTouched: 0, errorMsg: msg };
   }
+}
+
+// adapter 失敗時に、その source に紐づく enabled Account のうち当日 snapshot が
+// 無いものを前日値でコピーする。返り値はコピーした Account 数。
+//
+// 銘柄レベルの注意: 「売って 0 になった」を口座成功時の差分で表現するため、
+// 失敗 → carry-over でだけ前日 HoldingSnapshot を当日にコピーする。adapter が
+// 成功した日は通常通り persist が当日 upsert するので、消えた銘柄は自然に 0 になる。
+async function carryOverFailedSource(source: DataSource): Promise<number> {
+  const today = toJstDateString(new Date());
+  const accounts = await prisma.account.findMany({
+    where: { enabled: true, source },
+  });
+
+  let copied = 0;
+  for (const a of accounts) {
+    // 既に当日 snapshot がある (= 別経路や同日内の別 run で更新済み) → 触らない
+    const existing = await prisma.accountSnapshot.findUnique({
+      where: { accountId_capturedDate: { accountId: a.id, capturedDate: today } },
+    });
+    if (existing) continue;
+
+    const prev = await prisma.accountSnapshot.findFirst({
+      where: { accountId: a.id, capturedDate: { lt: today } },
+      orderBy: { capturedDate: 'desc' },
+    });
+    if (!prev) continue; // 履歴自体ゼロ → 復元元無し
+
+    const newSnap = await prisma.accountSnapshot.create({
+      data: {
+        accountId: a.id,
+        capturedAt: new Date(),
+        capturedDate: today,
+        totalValueNative: prev.totalValueNative,
+        totalValueJpy: prev.totalValueJpy,
+        cashNative: prev.cashNative,
+        cashJpy: prev.cashJpy,
+        fxRate: prev.fxRate,
+      },
+    });
+
+    const prevHoldings = await prisma.holdingSnapshot.findMany({
+      where: { capturedDate: prev.capturedDate, holding: { accountId: a.id } },
+    });
+    for (const hs of prevHoldings) {
+      await prisma.holdingSnapshot.create({
+        data: {
+          snapshotId: newSnap.id,
+          holdingId: hs.holdingId,
+          capturedDate: today,
+          quantity: hs.quantity,
+          marketPriceNative: hs.marketPriceNative,
+          marketPriceJpy: hs.marketPriceJpy,
+          marketValueNative: hs.marketValueNative,
+          marketValueJpy: hs.marketValueJpy,
+          ...(hs.avgCostNative != null ? { avgCostNative: hs.avgCostNative } : {}),
+        },
+      });
+    }
+    copied += 1;
+  }
+  return copied;
 }
 
 /** すべての enabled な source を順次実行 */

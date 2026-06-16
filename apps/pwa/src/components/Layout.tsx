@@ -1,6 +1,7 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { LayoutDashboard, Wallet, TrendingUp, Tags, GraduationCap, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react';
 import { SyncIndicator } from './SyncIndicator.js';
+import { ConnectionErrorOverlay } from './ConnectionErrorOverlay.js';
 
 const NAV = [
   { to: '/', label: 'ダッシュボード', icon: LayoutDashboard, end: true },
@@ -49,6 +50,8 @@ export function Layout() {
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6">
         <Outlet />
       </main>
+
+      <ConnectionErrorOverlay />
     </div>
   );
 }
