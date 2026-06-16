@@ -244,7 +244,8 @@ export function History() {
       )}
 
       {/* ホバー位置の値を固定パネルで表示 (グラフに被らない)。
-          未ホバー時は期間最終 (= 最新) を表示。 */}
+          未ホバー時は期間最終 (= 最新) を表示。
+          並び順はグラフ積み上げと一致させて「下端 = 現金」になるよう reverse。 */}
       {data && data.points.length > 0 && summary && (
         <div className="p-3 border border-[var(--color-border)] bg-[var(--color-bg-elevated)] rounded">
           {(() => {
@@ -254,9 +255,12 @@ export function History() {
               (s, a) => s + (point[a.key] as number),
               0,
             );
+            // グラフは下から cash, fx, stock, etf, ... の順で積み上がる。
+            // 視覚的に対応させるため、リストは上 = 最上層 (投信など) / 下 = 現金 になるよう反転。
+            const visibleTopDown = [...visible].reverse();
             return (
               <>
-                <div className="flex items-baseline justify-between mb-2">
+                <div className="flex items-baseline justify-between mb-2 pb-2 border-b border-[var(--color-border)]">
                   <span className="text-sm font-medium">
                     {hoverPoint ? point.date : `最新 (${point.date})`}
                   </span>
@@ -264,18 +268,23 @@ export function History() {
                     総額 {formatJpy(total)}
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-                  {visible.map((a) => (
-                    <span key={a.key as string} className="flex items-baseline gap-1">
-                      <span
-                        className="inline-block w-2 h-2 rounded-sm"
-                        style={{ background: a.color }}
-                      />
-                      <span className="text-[var(--color-text-muted)]">{a.label}:</span>
+                <div className="flex flex-col gap-1 text-sm">
+                  {visibleTopDown.map((a) => (
+                    <div
+                      key={a.key as string}
+                      className="flex items-baseline justify-between gap-3"
+                    >
+                      <span className="flex items-baseline gap-2">
+                        <span
+                          className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
+                          style={{ background: a.color }}
+                        />
+                        <span className="text-[var(--color-text-muted)]">{a.label}</span>
+                      </span>
                       <span className="tabular-nums">
                         {formatJpy(point[a.key] as number)}
                       </span>
-                    </span>
+                    </div>
                   ))}
                 </div>
               </>
