@@ -151,11 +151,12 @@ export function History() {
       )}
 
       {data && data.points.length > 0 && (
-        <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)] h-[28rem]">
+      <div className="flex flex-col md:flex-row md:items-stretch gap-3">
+        <div className="bg-[var(--color-bg-elevated)] rounded-lg p-2 md:p-4 border border-[var(--color-border)] h-64 md:h-[28rem] md:flex-1 min-w-0">
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart
               data={data.points}
-              margin={{ top: 30, right: 20, bottom: 10, left: 0 }}
+              margin={{ top: 30, right: 8, bottom: 10, left: 0 }}
               onMouseMove={(e: { activePayload?: Array<{ payload?: HistoryTotalPoint }> }) => {
                 const p = e?.activePayload?.[0]?.payload;
                 if (p) setHoverPoint(p);
@@ -183,7 +184,14 @@ export function History() {
                 cursor={{ stroke: 'var(--color-text-muted)', strokeDasharray: '3 3' }}
               />
               <Legend
-                wrapperStyle={{ fontSize: '12px', cursor: 'pointer' }}
+                align="center"
+                verticalAlign="bottom"
+                wrapperStyle={{
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  width: '100%',
+                  textAlign: 'center',
+                }}
                 onClick={(e: unknown) => {
                   const dk = (e as { dataKey?: unknown })?.dataKey;
                   if (typeof dk === 'string') toggleHidden(dk);
@@ -241,13 +249,13 @@ export function History() {
             </AreaChart>
           </ResponsiveContainer>
         </div>
-      )}
 
-      {/* ホバー位置の値を固定パネルで表示 (グラフに被らない)。
-          未ホバー時は期間最終 (= 最新) を表示。
-          並び順はグラフ積み上げと一致させて「下端 = 現金」になるよう reverse。 */}
-      {data && data.points.length > 0 && summary && (
-        <div className="p-3 border border-[var(--color-border)] bg-[var(--color-bg-elevated)] rounded">
+        {/* ホバー位置の値を固定パネルで表示 (グラフに被らない)。
+            未ホバー時は期間最終 (= 最新) を表示。
+            並び順はグラフ積み上げと一致させて「下端 = 現金」になるよう reverse。
+            md 以上は右側に並べて改行しない最小幅 (md:w-64)、未満は下に。 */}
+        {summary && (
+        <div className="p-3 border border-[var(--color-border)] bg-[var(--color-bg-elevated)] rounded md:w-64 md:flex-shrink-0">
           {(() => {
             const point = hoverPoint ?? summary.latest;
             const visible = visibleAreas.filter((a) => !hidden.has(a.key as string));
@@ -291,6 +299,8 @@ export function History() {
             );
           })()}
         </div>
+        )}
+      </div>
       )}
     </div>
   );
