@@ -2,7 +2,14 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ScrapeRunSummary, SyncStatusSource } from '@asset-tracker/shared';
 import { CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
-import { apiFetch, getEndpoint, setEndpoint, getToken, setToken } from '../api/client.js';
+import {
+  apiFetch,
+  ApiError,
+  getEndpoint,
+  setEndpoint,
+  getToken,
+  setToken,
+} from '../api/client.js';
 import { useWakePc, useFxRates, useSyncStatus } from '../api/queries.js';
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -31,6 +38,120 @@ function formatAgo(iso: string | null): string {
   if (diffH < 24) return `${diffH}時間前`;
   const diffD = Math.floor(diffH / 24);
   return `${diffD}日前`;
+}
+
+// 接続診断 — 「新端末で API が取れない」を切り分けるための小ツール。
+//   実 fetch するエンドポイント (Origin + path) を表示 → 入力ミスに気付ける
+//   /api/sync-status を 1 回叩いて HTTP status + 原因推定を表示
+type DiagResult =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | { kind: 'ok'; url: string; ms: number; overall: string }
+  | { kind: 'fail'; url: string; ms: number; status: number; message: string; hint: string };
+
+function diagnoseHint(status: number, msg: string, savedEndpoint: string): string {
+  if (status === 0 && msg.includes('Token')) {
+    return 'Bearer Token が未保存です。下の「API 接続設定」で入力 → 保存ボタンを押してください。';
+  }
+  if (status === 0) {
+    // fetch 自体が失敗 (network error / CORS / DNS)
+    if (!savedEndpoint) {
+      return 'Endpoint が未設定 + PWA を同一オリジンで配信していない可能性。Pi の URL (例: http://100.85.86.51:3000) を Endpoint に入れて保存してください。';
+    }
+    return `Endpoint URL (${savedEndpoint}) に到達できません。Tailscale で Pi に ping が通るか、URL に http:// が付いているか、ポート番号 (:3000) が正しいかを確認してください。`;
+  }
+  if (status === 401) {
+    return 'Token が一致しません。Pi の .env の ASSET_TRACKER_TOKEN と PWA に入力した値が一致しているか確認してください (前後の空白に注意)。';
+  }
+  if (status === 404) {
+    return 'Endpoint URL がサーバを指していません (path が違う / 別ホスト)。';
+  }
+  if (status >= 500) {
+    return 'サーバ側エラー。Pi の `journalctl -u asset-tracker -e` を確認してください。';
+  }
+  return '不明なエラー。';
+}
+
+function ConnectivityDiagnostics() {
+  const [result, setResult] = useState<DiagResult>({ kind: 'idle' });
+  const savedEndpoint = getEndpoint();
+  const savedToken = getToken();
+  const resolvedBase = savedEndpoint || window.location.origin;
+  const resolvedUrl = `${resolvedBase.replace(/\/$/, '')}/api/sync-status`;
+  const origin = window.location.origin;
+
+  async function runTest() {
+    setResult({ kind: 'running' });
+    const start = performance.now();
+    try {
+      const data = await apiFetch<{ overall: string }>('/api/sync-status');
+      const ms = Math.round(performance.now() - start);
+      setResult({ kind: 'ok', url: resolvedUrl, ms, overall: data.overall });
+    } catch (e) {
+      const ms = Math.round(performance.now() - start);
+      const status = e instanceof ApiError ? e.status : 0;
+      const message =
+        e instanceof Error ? e.message : typeof e === 'string' ? e : 'unknown';
+      const hint = diagnoseHint(status, message, savedEndpoint);
+      setResult({ kind: 'fail', url: resolvedUrl, ms, status, message, hint });
+    }
+  }
+
+  return (
+    <div className="p-3 border border-[var(--color-border)] bg-[var(--color-bg-elevated)] rounded space-y-2 text-sm">
+      <dl className="grid grid-cols-[8rem_1fr] gap-x-2 gap-y-1 text-xs">
+        <dt className="text-[var(--color-text-muted)]">PWA 表示元</dt>
+        <dd className="font-mono break-all">{origin}</dd>
+        <dt className="text-[var(--color-text-muted)]">保存済 Endpoint</dt>
+        <dd className="font-mono break-all">
+          {savedEndpoint || (
+            <span className="text-[var(--color-text-muted)]">(空 = 同一オリジン)</span>
+          )}
+        </dd>
+        <dt className="text-[var(--color-text-muted)]">保存済 Token</dt>
+        <dd className="font-mono">
+          {savedToken ? (
+            `${savedToken.slice(0, 4)}…${savedToken.slice(-4)} (${savedToken.length} 文字)`
+          ) : (
+            <span className="text-[var(--color-negative)]">未設定</span>
+          )}
+        </dd>
+        <dt className="text-[var(--color-text-muted)]">実 fetch URL</dt>
+        <dd className="font-mono break-all">{resolvedUrl}</dd>
+      </dl>
+
+      <button
+        onClick={runTest}
+        disabled={result.kind === 'running'}
+        className="px-3 py-1.5 bg-[var(--color-primary)] text-white rounded text-sm disabled:opacity-50"
+      >
+        {result.kind === 'running' ? '実行中…' : '接続テスト'}
+      </button>
+
+      {result.kind === 'ok' && (
+        <div className="p-2 border border-[var(--color-positive)] bg-[var(--color-positive)]/10 rounded text-xs text-[var(--color-positive)]">
+          <p className="font-medium">✓ 200 OK ({result.ms}ms)</p>
+          <p>overall = {result.overall}</p>
+          <p className="mt-1 text-[var(--color-text-muted)]">
+            この端末から API への接続は正常です。
+          </p>
+        </div>
+      )}
+
+      {result.kind === 'fail' && (
+        <div className="p-2 border border-[var(--color-negative)] bg-[var(--color-negative)]/10 rounded text-xs text-[var(--color-negative)]">
+          <p className="font-medium">
+            ✗ {result.status === 0 ? 'fetch 失敗' : `HTTP ${result.status}`} ({result.ms}ms)
+          </p>
+          <p className="font-mono break-all">{result.message.slice(0, 200)}</p>
+          <p className="mt-2 text-[var(--color-text)]">
+            <span className="font-medium">推測: </span>
+            {result.hint}
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function SyncStatusCard({ row, thresholdHours }: { row: SyncStatusSource; thresholdHours: number }) {
@@ -194,6 +315,11 @@ export function Settings() {
           保存
         </button>
         {saved && <span className="ml-3 text-sm text-[var(--color-positive)]">保存しました</span>}
+
+        <div className="mt-4">
+          <h3 className="text-sm font-semibold mb-2">接続診断</h3>
+          <ConnectivityDiagnostics />
+        </div>
       </section>
 
       <section>
