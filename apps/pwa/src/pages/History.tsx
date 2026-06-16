@@ -4,11 +4,11 @@ import {
   Area,
   XAxis,
   YAxis,
-  Tooltip,
   CartesianGrid,
   ResponsiveContainer,
   Legend,
   ReferenceDot,
+  Tooltip,
 } from 'recharts';
 import type { HistoryTotalPoint } from '@asset-tracker/shared';
 import { useHistoryTotal } from '../api/queries.js';
@@ -40,40 +40,11 @@ function formatJpy(n: number): string {
   return `¥${Math.round(n).toLocaleString('ja-JP')}`;
 }
 
-// payload は visible な Area の値だけ含まれる (Legend で hide にしたものは除外される)。
-// 総額はその合計として算出 → 「隠した区分の影響を受けた表示総額」になる。
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: Array<{ value?: number; name?: string; color?: string; dataKey?: string | number }>;
-  label?: string;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const total = payload.reduce(
-    (s, p) => s + (typeof p.value === 'number' ? p.value : 0),
-    0,
-  );
-  return (
-    <div className="p-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-md text-xs space-y-0.5">
-      <p className="font-medium text-[var(--color-text)]">{label}</p>
-      <p className="font-medium border-b border-[var(--color-border)] pb-1 mb-1">
-        総額: <span className="tabular-nums">{formatJpy(total)}</span>
-      </p>
-      {payload.map((p) => (
-        <p key={p.dataKey as string} style={{ color: p.color }} className="tabular-nums">
-          {p.name}: {formatJpy(typeof p.value === 'number' ? p.value : 0)}
-        </p>
-      ))}
-    </div>
-  );
-}
 
 export function History() {
   const [days, setDays] = useState(90);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
+  const [hoverPoint, setHoverPoint] = useState<HistoryTotalPoint | null>(null);
   const { data, isLoading, isError } = useHistoryTotal(days);
 
   // 期間内 totalJpy の peak と直近値
@@ -182,7 +153,15 @@ export function History() {
       {data && data.points.length > 0 && (
         <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)] h-[28rem]">
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data.points} margin={{ top: 30, right: 20, bottom: 10, left: 0 }}>
+            <AreaChart
+              data={data.points}
+              margin={{ top: 30, right: 20, bottom: 10, left: 0 }}
+              onMouseMove={(e: { activePayload?: Array<{ payload?: HistoryTotalPoint }> }) => {
+                const p = e?.activePayload?.[0]?.payload;
+                if (p) setHoverPoint(p);
+              }}
+              onMouseLeave={() => setHoverPoint(null)}
+            >
               <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
               <XAxis
                 dataKey="date"
@@ -197,10 +176,10 @@ export function History() {
                   v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}k`
                 }
               />
-              {/* グラフに被らないよう左上固定。総額はカスタム Tooltip 内で算出 */}
+              {/* 表示はグラフ下の固定パネル (HoverPanel) でするので、Tooltip 自体は
+                  cursor (縦の点線) のためだけに残し、本体は描かない */}
               <Tooltip
-                content={<ChartTooltip />}
-                position={{ x: 10, y: 0 }}
+                content={() => null}
                 cursor={{ stroke: 'var(--color-text-muted)', strokeDasharray: '3 3' }}
               />
               <Legend
@@ -240,7 +219,7 @@ export function History() {
                 />
               ))}
 
-              {/* 期間最大ポイント + 金額ラベル (積み上げの頂点に打つ) */}
+              {/* 期間最大ポイント。金額は下のサマリカードに出ているのでラベルは「最大値」のみ */}
               {summary && peakStackY != null && peakStackY > 0 && (
                 <ReferenceDot
                   x={summary.peak.date}
@@ -251,7 +230,7 @@ export function History() {
                   strokeWidth={2}
                   ifOverflow="extendDomain"
                   label={{
-                    value: `最大 ${formatJpy(peakStackY)}`,
+                    value: '最大値',
                     position: 'top',
                     fill: 'var(--color-accent)',
                     fontSize: 12,
@@ -261,6 +240,47 @@ export function History() {
               )}
             </AreaChart>
           </ResponsiveContainer>
+        </div>
+      )}
+
+      {/* ホバー位置の値を固定パネルで表示 (グラフに被らない)。
+          未ホバー時は期間最終 (= 最新) を表示。 */}
+      {data && data.points.length > 0 && summary && (
+        <div className="p-3 border border-[var(--color-border)] bg-[var(--color-bg-elevated)] rounded">
+          {(() => {
+            const point = hoverPoint ?? summary.latest;
+            const visible = visibleAreas.filter((a) => !hidden.has(a.key as string));
+            const total = visible.reduce(
+              (s, a) => s + (point[a.key] as number),
+              0,
+            );
+            return (
+              <>
+                <div className="flex items-baseline justify-between mb-2">
+                  <span className="text-sm font-medium">
+                    {hoverPoint ? point.date : `最新 (${point.date})`}
+                  </span>
+                  <span className="text-base font-semibold tabular-nums">
+                    総額 {formatJpy(total)}
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                  {visible.map((a) => (
+                    <span key={a.key as string} className="flex items-baseline gap-1">
+                      <span
+                        className="inline-block w-2 h-2 rounded-sm"
+                        style={{ background: a.color }}
+                      />
+                      <span className="text-[var(--color-text-muted)]">{a.label}:</span>
+                      <span className="tabular-nums">
+                        {formatJpy(point[a.key] as number)}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </>
+            );
+          })()}
         </div>
       )}
     </div>
