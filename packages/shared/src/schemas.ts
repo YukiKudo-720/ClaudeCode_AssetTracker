@@ -183,14 +183,27 @@ export const AllocationResponseSchema = z.object({
 export type AllocationResponse = z.infer<typeof AllocationResponseSchema>;
 
 // /api/history/total
+// totalJpy / cashJpy に加え、assetClass 別の値 (該当無しは 0) を flat に持つ。
+// recharts の dataKey にそのまま渡す前提。
+export const HistoryTotalPointSchema = z.object({
+  date: z.string(),
+  totalJpy: z.number(),
+  cashJpy: z.number(),
+  cash: z.number(),
+  fx: z.number(),
+  stock: z.number(),
+  etf: z.number(),
+  mutual_fund: z.number(),
+  reit: z.number(),
+  bond: z.number(),
+  crypto: z.number(),
+  commodity: z.number(),
+  other: z.number(),
+});
+export type HistoryTotalPoint = z.infer<typeof HistoryTotalPointSchema>;
+
 export const HistoryTotalResponseSchema = z.object({
-  points: z.array(
-    z.object({
-      date: z.string(),
-      totalJpy: z.number(),
-      cashJpy: z.number(),
-    }),
-  ),
+  points: z.array(HistoryTotalPointSchema),
 });
 export type HistoryTotalResponse = z.infer<typeof HistoryTotalResponseSchema>;
 
