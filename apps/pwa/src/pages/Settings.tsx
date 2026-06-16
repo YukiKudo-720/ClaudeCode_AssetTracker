@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import type { ScrapeRunSummary, SyncStatusSource } from '@asset-tracker/shared';
-import { CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, Clock, Eye, EyeOff } from 'lucide-react';
 import {
   apiFetch,
   ApiError,
@@ -225,6 +225,7 @@ const RUNS_POLL_MS = 10_000;
 export function Settings() {
   const [endpoint, setEndpointState] = useState(() => getEndpoint());
   const [token, setTokenState] = useState(() => getToken());
+  const [showToken, setShowToken] = useState(false);
   const [saved, setSaved] = useState(false);
   const [triggeredAt, setTriggeredAt] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
@@ -283,7 +284,7 @@ export function Settings() {
   }
 
   return (
-    <div className="space-y-6 max-w-md">
+    <div className="space-y-6">
       <section>
         <h2 className="text-base font-semibold mb-3">API 接続設定</h2>
         <label className="block mb-3">
@@ -300,13 +301,23 @@ export function Settings() {
         </label>
         <label className="block mb-3">
           <span className="text-sm text-[var(--color-text-muted)]">Bearer Token</span>
-          <input
-            className="block w-full mt-1 px-3 py-2 border border-[var(--color-border)] rounded bg-[var(--color-bg-elevated)] font-mono text-sm"
-            type="password"
-            placeholder="ASSET_TRACKER_TOKEN"
-            value={token}
-            onChange={(e) => setTokenState(e.target.value)}
-          />
+          <div className="relative mt-1">
+            <input
+              className="block w-full px-3 py-2 pr-12 border border-[var(--color-border)] rounded bg-[var(--color-bg-elevated)] font-mono text-sm"
+              type={showToken ? 'text' : 'password'}
+              placeholder="ASSET_TRACKER_TOKEN"
+              value={token}
+              onChange={(e) => setTokenState(e.target.value)}
+            />
+            <button
+              type="button"
+              onClick={() => setShowToken((v) => !v)}
+              aria-label={showToken ? 'Token を隠す' : 'Token を表示'}
+              className="absolute right-1 top-1/2 -translate-y-1/2 p-2 text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            >
+              {showToken ? <EyeOff size={16} /> : <Eye size={16} />}
+            </button>
+          </div>
         </label>
         <button
           onClick={handleSave}
