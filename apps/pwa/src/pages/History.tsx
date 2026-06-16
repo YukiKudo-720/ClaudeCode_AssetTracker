@@ -1,14 +1,14 @@
 import { useState, useMemo } from 'react';
 import {
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
   CartesianGrid,
   ResponsiveContainer,
   Legend,
-  ReferenceLine,
+  ReferenceDot,
 } from 'recharts';
 import type { HistoryTotalPoint } from '@asset-tracker/shared';
 import { useHistoryTotal } from '../api/queries.js';
@@ -21,18 +21,18 @@ const PERIODS = [
   { label: 'ALL', days: 3650 },
 ];
 
-// 描画する assetClass。期間内に 1 点でも > 0 の class だけ実際に表示する。
-// 色は Tailwind の標準パレット相当 (dark/light どちらでも読める中間色)。
-const ASSET_CLASS_LINES: Array<{ key: keyof HistoryTotalPoint; label: string; color: string }> = [
-  { key: 'stock', label: '株式', color: '#3b82f6' },
-  { key: 'etf', label: 'ETF', color: '#10b981' },
-  { key: 'mutual_fund', label: '投資信託', color: '#a855f7' },
-  { key: 'reit', label: 'REIT', color: '#f59e0b' },
-  { key: 'bond', label: '債券', color: '#92400e' },
-  { key: 'cash', label: '現金', color: '#6b7280' },
+// 積み上げ順 (下から)。MF 風に「現金/預金」を下、株式系を中央、その他を上に。
+// 期間内に 1 点でも > 0 のものだけ実際に Area を描く。
+const ASSET_CLASS_AREAS: Array<{ key: keyof HistoryTotalPoint; label: string; color: string }> = [
+  { key: 'cash', label: '現金', color: '#3b82f6' },
   { key: 'fx', label: 'FX', color: '#06b6d4' },
+  { key: 'stock', label: '株式', color: '#ef4444' },
+  { key: 'etf', label: 'ETF', color: '#f97316' },
+  { key: 'mutual_fund', label: '投資信託', color: '#f59e0b' },
+  { key: 'reit', label: 'REIT', color: '#eab308' },
+  { key: 'bond', label: '債券', color: '#92400e' },
   { key: 'crypto', label: '暗号資産', color: '#ec4899' },
-  { key: 'commodity', label: 'コモディティ', color: '#eab308' },
+  { key: 'commodity', label: 'コモディティ', color: '#a855f7' },
   { key: 'other', label: 'その他', color: '#9ca3af' },
 ];
 
@@ -42,6 +42,7 @@ function formatJpy(n: number): string {
 
 export function History() {
   const [days, setDays] = useState(90);
+  const [hidden, setHidden] = useState<Set<string>>(new Set());
   const { data, isLoading, isError } = useHistoryTotal(days);
 
   // 期間内 totalJpy の peak と直近値
@@ -55,13 +56,34 @@ export function History() {
     return { peak, latest, first, diff, diffRatio };
   }, [data]);
 
-  // 期間内に 1 点でも > 0 の assetClass だけ Line を描く
-  const visibleLines = useMemo(() => {
+  // 期間内に 1 点でも > 0 の assetClass だけ Area を描く
+  const visibleAreas = useMemo(() => {
     if (!data || data.points.length === 0) return [];
-    return ASSET_CLASS_LINES.filter((c) =>
+    return ASSET_CLASS_AREAS.filter((c) =>
       data.points.some((p) => (p[c.key] as number) > 0),
     );
   }, [data]);
+
+  // hidden を考慮した stacked 合計を再計算して peak の y 位置を補正
+  // (隠した区分の上には ReferenceDot を打ちたくないため)
+  const peakStackY = useMemo(() => {
+    if (!summary || !data) return null;
+    const p = data.points.find((x) => x.date === summary.peak.date);
+    if (!p) return null;
+    return visibleAreas.reduce(
+      (sum, a) => (hidden.has(a.key as string) ? sum : sum + (p[a.key] as number)),
+      0,
+    );
+  }, [summary, data, visibleAreas, hidden]);
+
+  function toggleHidden(key: string) {
+    setHidden((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -127,9 +149,9 @@ export function History() {
       )}
 
       {data && data.points.length > 0 && (
-        <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)] h-96">
+        <div className="bg-[var(--color-bg-elevated)] rounded-lg p-4 border border-[var(--color-border)] h-[28rem]">
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={data.points} margin={{ top: 10, right: 20, bottom: 10, left: 0 }}>
+            <AreaChart data={data.points} margin={{ top: 30, right: 20, bottom: 10, left: 0 }}>
               <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" />
               <XAxis
                 dataKey="date"
@@ -145,49 +167,69 @@ export function History() {
                 }
               />
               <Tooltip
-                formatter={(v: number) => `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`}
+                formatter={(v: number, name: string) => [
+                  `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`,
+                  name,
+                ]}
                 contentStyle={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
               />
-              <Legend wrapperStyle={{ fontSize: '12px' }} />
-
-              {/* 期間最大ラインを強調 */}
-              {summary && (
-                <ReferenceLine
-                  y={summary.peak.totalJpy}
-                  stroke="var(--color-accent)"
-                  strokeDasharray="4 4"
-                  ifOverflow="extendDomain"
-                  label={{
-                    value: `最大 ${formatJpy(summary.peak.totalJpy)}`,
-                    fill: 'var(--color-accent)',
-                    fontSize: 11,
-                    position: 'insideTopRight',
-                  }}
-                />
-              )}
-
-              <Line
-                type="monotone"
-                dataKey="totalJpy"
-                name="総資産"
-                stroke="var(--color-primary)"
-                strokeWidth={2}
-                dot={false}
+              <Legend
+                wrapperStyle={{ fontSize: '12px', cursor: 'pointer' }}
+                onClick={(e: unknown) => {
+                  const dk = (e as { dataKey?: unknown })?.dataKey;
+                  if (typeof dk === 'string') toggleHidden(dk);
+                }}
+                formatter={(value: string, entry: unknown) => {
+                  const dk = (entry as { dataKey?: unknown })?.dataKey;
+                  const isHidden = typeof dk === 'string' && hidden.has(dk);
+                  return (
+                    <span
+                      style={{
+                        textDecoration: isHidden ? 'line-through' : 'none',
+                        opacity: isHidden ? 0.5 : 1,
+                      }}
+                    >
+                      {value}
+                    </span>
+                  );
+                }}
               />
 
-              {visibleLines.map((c) => (
-                <Line
+              {visibleAreas.map((c) => (
+                <Area
                   key={c.key as string}
                   type="monotone"
                   dataKey={c.key as string}
                   name={c.label}
+                  stackId="1"
                   stroke={c.color}
-                  strokeWidth={1.5}
-                  strokeDasharray="4 4"
-                  dot={false}
+                  fill={c.color}
+                  fillOpacity={0.7}
+                  hide={hidden.has(c.key as string)}
+                  isAnimationActive={false}
                 />
               ))}
-            </LineChart>
+
+              {/* 期間最大ポイント + 金額ラベル (積み上げの頂点に打つ) */}
+              {summary && peakStackY != null && peakStackY > 0 && (
+                <ReferenceDot
+                  x={summary.peak.date}
+                  y={peakStackY}
+                  r={5}
+                  fill="var(--color-accent)"
+                  stroke="var(--color-bg-elevated)"
+                  strokeWidth={2}
+                  ifOverflow="extendDomain"
+                  label={{
+                    value: `最大 ${formatJpy(peakStackY)}`,
+                    position: 'top',
+                    fill: 'var(--color-accent)',
+                    fontSize: 12,
+                    fontWeight: 600,
+                  }}
+                />
+              )}
+            </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
