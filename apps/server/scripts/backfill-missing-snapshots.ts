@@ -19,11 +19,15 @@ import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 const APPLY = process.argv.includes('--apply');
 
-// JST 日付 YYYY-MM-DD を 1 日進める
+// JST 日付 YYYY-MM-DD を 1 日進める。
+// 注意: Date を JST で作っても .toISOString().slice(0,10) は UTC 日付を返すので、
+// JST 24:00:00 を跨がず同じ日付が返って無限ループになる。日付文字列を直接分解して
+// Date.UTC で繰上げ計算する (タイムゾーン非依存)。
 function nextDate(yyyymmdd: string): string {
-  const d = new Date(`${yyyymmdd}T00:00:00+09:00`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
+  const [y, m, d] = yyyymmdd.split('-').map(Number);
+  if (y == null || m == null || d == null) throw new Error(`invalid date: ${yyyymmdd}`);
+  const dt = new Date(Date.UTC(y, m - 1, d + 1));
+  return dt.toISOString().slice(0, 10);
 }
 
 function todayJst(): string {
