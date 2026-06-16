@@ -58,6 +58,20 @@ export async function persistAccountUpdate(
       // 既存 Security の分類 (assetClass/region/sector/name) は最新 adapter で更新。
       // exchange は canonical 側が null で adapter が値を持ってきたときだけ埋める
       // (上書きで「NASDAQ → null」みたいな退化を防ぐ)。
+      // ただし (symbol, exchange) は unique なので、過去の重複行がまだ DB に残っている
+      // 状態で埋めると P2002 で落ちる。衝突相手がいる場合は exchange を据え置く。
+      let exchangePatch: { exchange?: string } = {};
+      if (security.exchange == null && exchangeValue != null) {
+        const collision = await prisma.security.findFirst({
+          where: {
+            symbol: h.symbol,
+            exchange: exchangeValue,
+            NOT: { id: security.id },
+          },
+          select: { id: true },
+        });
+        if (!collision) exchangePatch = { exchange: exchangeValue };
+      }
       security = await prisma.security.update({
         where: { id: security.id },
         data: {
@@ -65,9 +79,7 @@ export async function persistAccountUpdate(
           assetClass: h.assetClass,
           region: h.region ?? null,
           sector: h.sector ?? null,
-          ...(security.exchange == null && exchangeValue != null
-            ? { exchange: exchangeValue }
-            : {}),
+          ...exchangePatch,
           updatedAt: new Date(),
         },
       });
