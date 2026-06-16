@@ -8,12 +8,53 @@ export function registerAccountRoutes(app: FastifyInstance): void {
       orderBy: { createdAt: 'asc' },
     });
 
+    // 各口座について、最新と前日の AccountSnapshot を取って、その日の
+    // HoldingSnapshot を assetClass で集約 (breakdown)。
+    // 「前日」は最新 capturedDate より strictly 前で最も新しい日。
     const summaries = await Promise.all(
       accounts.map(async (a) => {
         const latest = await prisma.accountSnapshot.findFirst({
           where: { accountId: a.id },
-          orderBy: { capturedAt: 'desc' },
+          orderBy: { capturedDate: 'desc' },
         });
+        const prev = latest
+          ? await prisma.accountSnapshot.findFirst({
+              where: { accountId: a.id, capturedDate: { lt: latest.capturedDate } },
+              orderBy: { capturedDate: 'desc' },
+            })
+          : null;
+
+        async function aggregateByAssetClass(capturedDate: string): Promise<Map<string, number>> {
+          const snaps = await prisma.holdingSnapshot.findMany({
+            where: { capturedDate, holding: { accountId: a.id } },
+            include: {
+              holding: { include: { security: { select: { assetClass: true } } } },
+            },
+          });
+          const m = new Map<string, number>();
+          for (const hs of snaps) {
+            const cls = hs.holding.security.assetClass;
+            m.set(cls, (m.get(cls) ?? 0) + Number(hs.marketValueJpy));
+          }
+          return m;
+        }
+
+        const latestAgg = latest
+          ? await aggregateByAssetClass(latest.capturedDate)
+          : new Map<string, number>();
+        const prevAgg = prev
+          ? await aggregateByAssetClass(prev.capturedDate)
+          : new Map<string, number>();
+
+        const allClasses = new Set([...latestAgg.keys(), ...prevAgg.keys()]);
+        const breakdown = [...allClasses]
+          .map((cls) => ({
+            assetClass: cls,
+            valueJpy: latestAgg.get(cls) ?? 0,
+            prevValueJpy: prev ? (prevAgg.get(cls) ?? 0) : null,
+          }))
+          .sort((x, y) => y.valueJpy - x.valueJpy);
+
         return {
           id: a.id,
           kind: a.kind,
@@ -25,6 +66,9 @@ export function registerAccountRoutes(app: FastifyInstance): void {
           enabled: a.enabled,
           latestTotalJpy: latest ? Number(latest.totalValueJpy) : null,
           latestCapturedAt: latest ? latest.capturedAt.toISOString() : null,
+          prevTotalJpy: prev ? Number(prev.totalValueJpy) : null,
+          prevCapturedDate: prev ? prev.capturedDate : null,
+          breakdown,
         };
       }),
     );

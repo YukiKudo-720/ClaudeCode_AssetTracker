@@ -49,6 +49,15 @@ export const ScrapeStatusSchema = z.enum(['ok', 'error', 'running', 'needs_2fa']
 
 // API レスポンス型 (PC server → PWA)
 
+export const AccountAssetBreakdownSchema = z.object({
+  assetClass: z.string(),
+  valueJpy: z.number(),
+  // 前日 snapshot がそもそも無い場合は null。snapshot はあるがその assetClass が
+  // 前日には無かった場合は 0 (= 新規発生)。
+  prevValueJpy: z.number().nullable(),
+});
+export type AccountAssetBreakdown = z.infer<typeof AccountAssetBreakdownSchema>;
+
 export const AccountSummarySchema = z.object({
   id: z.string(),
   kind: AccountKindSchema,
@@ -60,6 +69,9 @@ export const AccountSummarySchema = z.object({
   enabled: z.boolean(),
   latestTotalJpy: z.number().nullable(),
   latestCapturedAt: z.string().nullable(),
+  prevTotalJpy: z.number().nullable(),
+  prevCapturedDate: z.string().nullable(),
+  breakdown: z.array(AccountAssetBreakdownSchema),
 });
 export type AccountSummary = z.infer<typeof AccountSummarySchema>;
 
