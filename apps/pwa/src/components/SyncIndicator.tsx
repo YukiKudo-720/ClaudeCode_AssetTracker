@@ -1,18 +1,14 @@
+import { Link } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { useScrapeRuns } from '../api/queries.js';
 import { CheckCircle2, AlertTriangle, Loader2, WifiOff, CloudOff } from 'lucide-react';
+import { useSyncStatus } from '../api/queries.js';
 
-function formatTime(t: number | string | Date): string {
-  return new Date(t).toLocaleString('ja-JP', {
-    month: 'numeric',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
+// ヘッダー右側のコンパクトバナー。詳細は /settings の「更新状況」セクションを参照。
+// - OK: 全 source が staleThresholdHours 以内に成功
+// - NG: いずれかが error or stale
+// クリックで /settings へ遷移する。
 export function SyncIndicator() {
-  const { data, isLoading, isError, isFetching, dataUpdatedAt } = useScrapeRuns();
+  const { data, isLoading, isError } = useSyncStatus();
   const [online, setOnline] = useState(() =>
     typeof navigator !== 'undefined' ? navigator.onLine : true,
   );
@@ -28,7 +24,6 @@ export function SyncIndicator() {
     };
   }, []);
 
-  // 初回 (キャッシュなし) のロード中のみスピナー
   if (isLoading && !data) {
     return (
       <span className="flex items-center gap-1 text-xs text-white/70">
@@ -38,53 +33,45 @@ export function SyncIndicator() {
     );
   }
 
-  // データなし + エラー = 完全に取れていない
-  if (!data || data.length === 0) {
+  if (!online) {
     return (
       <span className="flex items-center gap-1 text-xs text-white/70">
         <WifiOff size={14} />
-        未接続
+        オフライン
       </span>
     );
   }
 
-  const latest = data[0];
-  const lastScrape = latest ? formatTime(latest.startedAt) : '—';
-  const cacheTime = dataUpdatedAt ? formatTime(dataUpdatedAt) : '—';
-
-  // API 取得失敗中だがキャッシュは表示できている状態 (PC スリープ等)
-  if (isError || !online) {
-    return (
-      <span
-        className="flex items-center gap-1 text-xs text-[var(--color-accent)]"
-        title={`キャッシュ表示中 (取得試行: ${cacheTime})`}
-      >
-        <CloudOff size={14} />
-        {lastScrape} <span className="opacity-70">(cache)</span>
-      </span>
-    );
-  }
-
-  if (!latest) {
-    return <span className="text-xs text-white/70">未実行</span>;
-  }
-
-  if (latest.status === 'error' || latest.status === 'needs_2fa') {
+  if (isError || !data) {
     return (
       <span className="flex items-center gap-1 text-xs text-[var(--color-accent)]">
-        <AlertTriangle size={14} />
-        {lastScrape}
+        <CloudOff size={14} />
+        取得失敗
       </span>
+    );
+  }
+
+  if (data.overall === 'ok') {
+    return (
+      <Link
+        to="/settings"
+        className="flex items-center gap-1 text-xs text-white/85 hover:text-white"
+        title="クリックで更新状況の詳細を表示"
+      >
+        <CheckCircle2 size={14} />
+        同期OK
+      </Link>
     );
   }
 
   return (
-    <span
-      className="flex items-center gap-1 text-xs text-white/80"
-      title={isFetching ? '更新中…' : `最終取得: ${cacheTime}`}
+    <Link
+      to="/settings"
+      className="flex items-center gap-1 text-xs text-[var(--color-accent)] hover:underline font-medium"
+      title="クリックで更新状況の詳細を表示"
     >
-      <CheckCircle2 size={14} />
-      {lastScrape}
-    </span>
+      <AlertTriangle size={14} />
+      同期失敗あり
+    </Link>
   );
 }

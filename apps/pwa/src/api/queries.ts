@@ -7,6 +7,7 @@ import type {
   HistoryTotalResponse,
   HoldingsResponse,
   ScrapeRunSummary,
+  SyncStatusResponse,
   TodaiResponse,
   TodaiTag,
 } from '@asset-tracker/shared';
@@ -23,6 +24,15 @@ export function useScrapeRuns() {
   return useQuery({
     queryKey: ['runs'],
     queryFn: () => apiFetch<ScrapeRunSummary[]>('/api/runs'),
+  });
+}
+
+export function useSyncStatus() {
+  return useQuery({
+    queryKey: ['sync-status'],
+    queryFn: () => apiFetch<SyncStatusResponse>('/api/sync-status'),
+    // バナーに常時表示するので 1 分ごとに refresh
+    refetchInterval: 60_000,
   });
 }
 

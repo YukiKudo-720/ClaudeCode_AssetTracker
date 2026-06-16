@@ -1,8 +1,98 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ScrapeRunSummary } from '@asset-tracker/shared';
+import type { ScrapeRunSummary, SyncStatusSource } from '@asset-tracker/shared';
+import { CheckCircle2, AlertTriangle, Clock } from 'lucide-react';
 import { apiFetch, getEndpoint, setEndpoint, getToken, setToken } from '../api/client.js';
-import { useWakePc, useFxRates } from '../api/queries.js';
+import { useWakePc, useFxRates, useSyncStatus } from '../api/queries.js';
+
+const SOURCE_LABELS: Record<string, string> = {
+  moneyforward: 'MoneyForward (MF)',
+  webull_api: 'Webull',
+  moomoo_api: 'moomoo',
+};
+
+function formatDateTime(iso: string | null): string {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('ja-JP', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatAgo(iso: string | null): string {
+  if (!iso) return '実行履歴なし';
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const diffMin = Math.floor(diffMs / 60_000);
+  if (diffMin < 1) return 'たった今';
+  if (diffMin < 60) return `${diffMin}分前`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH}時間前`;
+  const diffD = Math.floor(diffH / 24);
+  return `${diffD}日前`;
+}
+
+function SyncStatusCard({ row, thresholdHours }: { row: SyncStatusSource; thresholdHours: number }) {
+  const label = SOURCE_LABELS[row.source] ?? row.source;
+  const isError =
+    row.latestRun?.status === 'error' || row.latestRun?.status === 'needs_2fa';
+  const tone = isError
+    ? 'border-[var(--color-negative)] bg-[var(--color-negative)]/5'
+    : row.isStale
+      ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
+      : 'border-[var(--color-border)] bg-[var(--color-bg-elevated)]';
+
+  return (
+    <div className={`p-3 border rounded ${tone}`}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="font-medium text-sm">{label}</span>
+        {isError ? (
+          <span className="flex items-center gap-1 text-xs text-[var(--color-negative)]">
+            <AlertTriangle size={14} />
+            失敗
+          </span>
+        ) : row.isStale ? (
+          <span className="flex items-center gap-1 text-xs text-[var(--color-accent)]">
+            <Clock size={14} />
+            {thresholdHours}h 以上更新なし
+          </span>
+        ) : (
+          <span className="flex items-center gap-1 text-xs text-[var(--color-positive)]">
+            <CheckCircle2 size={14} />
+            OK
+          </span>
+        )}
+      </div>
+      <dl className="text-xs text-[var(--color-text-muted)] space-y-0.5">
+        <div className="flex justify-between gap-2">
+          <dt>最終実行</dt>
+          <dd className="tabular-nums">
+            {row.latestRun ? formatDateTime(row.latestRun.startedAt) : '—'} (
+            {formatAgo(row.latestRun?.startedAt ?? null)})
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt>直近の成功</dt>
+          <dd className="tabular-nums">
+            {row.latestSuccessAt ? formatDateTime(row.latestSuccessAt) : 'なし'}
+            {row.latestSuccessAt ? ` (${formatAgo(row.latestSuccessAt)})` : ''}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt>ステータス</dt>
+          <dd>{row.latestRun?.status ?? '未実行'}</dd>
+        </div>
+        {row.latestRun?.errorMsg && (
+          <div className="pt-1 text-[var(--color-negative)] break-all">
+            {row.latestRun.errorMsg.slice(0, 200)}
+            {row.latestRun.errorMsg.length > 200 ? '…' : ''}
+          </div>
+        )}
+      </dl>
+    </div>
+  );
+}
 
 // PC で走る adapter 数 (mf + webull + moomoo) — wake-pc 完了判定に使う
 const EXPECTED_ADAPTERS = 3;
@@ -19,6 +109,7 @@ export function Settings() {
   const [tick, setTick] = useState(0);
   const wakePc = useWakePc();
   const fx = useFxRates();
+  const syncStatus = useSyncStatus();
 
   // 実行中だけ /api/runs を polling
   const runs = useQuery({
@@ -103,6 +194,30 @@ export function Settings() {
           保存
         </button>
         {saved && <span className="ml-3 text-sm text-[var(--color-positive)]">保存しました</span>}
+      </section>
+
+      <section>
+        <h2 className="text-base font-semibold mb-3">更新状況</h2>
+        {syncStatus.isLoading && (
+          <p className="text-sm text-[var(--color-text-muted)]">読み込み中…</p>
+        )}
+        {syncStatus.isError && (
+          <p className="text-sm text-[var(--color-negative)]">取得できませんでした</p>
+        )}
+        {syncStatus.data && (
+          <div className="space-y-2">
+            {syncStatus.data.bySource.map((row) => (
+              <SyncStatusCard
+                key={row.source}
+                row={row}
+                thresholdHours={syncStatus.data.staleThresholdHours}
+              />
+            ))}
+            <p className="text-xs text-[var(--color-text-muted)]">
+              {syncStatus.data.staleThresholdHours} 時間以内に成功実行が無いと「更新なし」扱い。
+            </p>
+          </div>
+        )}
       </section>
 
       <section>

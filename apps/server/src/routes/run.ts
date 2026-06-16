@@ -35,4 +35,61 @@ export function registerRunRoutes(app: FastifyInstance): void {
       take: 50,
     });
   });
+
+  // source ごとの同期状況サマリ。バナー / Settings の「更新状況」セクション用。
+  // - latestRun: 最新 run (status 込み)
+  // - latestSuccessAt: 直近 ok の startedAt (失敗続きでも以前の成功時刻を見せる)
+  // - isStale: STALE_THRESHOLD_HOURS 以内に ok 完了が無ければ true
+  // overall は bySource を OR で集約 (1 つでも error/stale → 'error')。
+  app.get('/api/sync-status', async () => {
+    const EXPECTED_SOURCES = ['moneyforward', 'webull_api', 'moomoo_api'] as const;
+    const STALE_THRESHOLD_HOURS = 24;
+
+    const since = new Date(Date.now() - STALE_THRESHOLD_HOURS * 60 * 60 * 1000);
+
+    const bySource = await Promise.all(
+      EXPECTED_SOURCES.map(async (source) => {
+        const [latestRun, latestSuccess] = await Promise.all([
+          prisma.scrapeRun.findFirst({
+            where: { source },
+            orderBy: { startedAt: 'desc' },
+          }),
+          prisma.scrapeRun.findFirst({
+            where: { source, status: 'ok' },
+            orderBy: { startedAt: 'desc' },
+          }),
+        ]);
+
+        const isStale = !latestSuccess || latestSuccess.startedAt < since;
+
+        return {
+          source,
+          latestRun: latestRun
+            ? {
+                id: latestRun.id,
+                startedAt: latestRun.startedAt.toISOString(),
+                finishedAt: latestRun.finishedAt?.toISOString() ?? null,
+                status: latestRun.status,
+                errorMsg: latestRun.errorMsg,
+                accountsTouched: latestRun.accountsTouched,
+              }
+            : null,
+          latestSuccessAt: latestSuccess?.startedAt.toISOString() ?? null,
+          isStale,
+        };
+      }),
+    );
+
+    const overall = bySource.some(
+      (s) => s.isStale || s.latestRun?.status === 'error' || s.latestRun?.status === 'needs_2fa',
+    )
+      ? 'error'
+      : 'ok';
+
+    return {
+      overall,
+      staleThresholdHours: STALE_THRESHOLD_HOURS,
+      bySource,
+    };
+  });
 }

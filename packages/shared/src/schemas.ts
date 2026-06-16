@@ -305,6 +305,31 @@ export const TodaiResponseSchema = z.object({
 export type TodaiResponse = z.infer<typeof TodaiResponseSchema>;
 
 
+// /api/sync-status — source ごとの同期状況サマリ (バナー / 設定の更新状況用)
+export const SyncStatusSourceSchema = z.object({
+  source: z.string(),
+  latestRun: z
+    .object({
+      id: z.string(),
+      startedAt: z.string(),
+      finishedAt: z.string().nullable(),
+      status: ScrapeStatusSchema,
+      errorMsg: z.string().nullable(),
+      accountsTouched: z.number(),
+    })
+    .nullable(),
+  latestSuccessAt: z.string().nullable(),
+  isStale: z.boolean(),
+});
+export type SyncStatusSource = z.infer<typeof SyncStatusSourceSchema>;
+
+export const SyncStatusResponseSchema = z.object({
+  overall: z.enum(['ok', 'error']),
+  staleThresholdHours: z.number(),
+  bySource: z.array(SyncStatusSourceSchema),
+});
+export type SyncStatusResponse = z.infer<typeof SyncStatusResponseSchema>;
+
 // /api/fx/rates
 export const FxRateInfoSchema = z.object({
   base: z.string(),
