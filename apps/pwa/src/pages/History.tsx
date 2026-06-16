@@ -40,6 +40,37 @@ function formatJpy(n: number): string {
   return `¥${Math.round(n).toLocaleString('ja-JP')}`;
 }
 
+// payload は visible な Area の値だけ含まれる (Legend で hide にしたものは除外される)。
+// 総額はその合計として算出 → 「隠した区分の影響を受けた表示総額」になる。
+function ChartTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{ value?: number; name?: string; color?: string; dataKey?: string | number }>;
+  label?: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const total = payload.reduce(
+    (s, p) => s + (typeof p.value === 'number' ? p.value : 0),
+    0,
+  );
+  return (
+    <div className="p-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)] shadow-md text-xs space-y-0.5">
+      <p className="font-medium text-[var(--color-text)]">{label}</p>
+      <p className="font-medium border-b border-[var(--color-border)] pb-1 mb-1">
+        総額: <span className="tabular-nums">{formatJpy(total)}</span>
+      </p>
+      {payload.map((p) => (
+        <p key={p.dataKey as string} style={{ color: p.color }} className="tabular-nums">
+          {p.name}: {formatJpy(typeof p.value === 'number' ? p.value : 0)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
 export function History() {
   const [days, setDays] = useState(90);
   const [hidden, setHidden] = useState<Set<string>>(new Set());
@@ -166,12 +197,11 @@ export function History() {
                   v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : `${(v / 1000).toFixed(0)}k`
                 }
               />
+              {/* グラフに被らないよう左上固定。総額はカスタム Tooltip 内で算出 */}
               <Tooltip
-                formatter={(v: number, name: string) => [
-                  `¥${v.toLocaleString('ja-JP', { maximumFractionDigits: 0 })}`,
-                  name,
-                ]}
-                contentStyle={{ background: 'var(--color-bg-elevated)', border: '1px solid var(--color-border)' }}
+                content={<ChartTooltip />}
+                position={{ x: 10, y: 0 }}
+                cursor={{ stroke: 'var(--color-text-muted)', strokeDasharray: '3 3' }}
               />
               <Legend
                 wrapperStyle={{ fontSize: '12px', cursor: 'pointer' }}
