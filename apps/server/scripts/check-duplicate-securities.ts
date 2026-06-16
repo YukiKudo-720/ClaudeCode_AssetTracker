@@ -2,6 +2,7 @@
 // 表示は (symbol, currency) で集約しているが、DB 上は (symbol, exchange) unique なので
 // adapter ごとの exchange 表記差で同じ銘柄が複数行に割れている可能性がある。
 // このスクリプトは削除はせず、状況だけ列挙する。
+import '../src/env.js';
 import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
