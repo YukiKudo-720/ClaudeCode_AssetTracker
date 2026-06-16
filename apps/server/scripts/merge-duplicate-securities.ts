@@ -154,16 +154,16 @@ async function main(): Promise<void> {
           }
         }
 
-        // (5) canonical の exchange を更新 (null→値持ち)
+        // (5) dup Security を先に delete して (symbol, exchange) unique を解放してから
+        // (6) canonical の exchange を更新 — 順番が逆だと P2002 で落ちる。
+        await tx.security.delete({ where: { id: dup.id } });
+
         if (nextExchange !== canonical.exchange) {
           await tx.security.update({
             where: { id: canonical.id },
             data: { exchange: nextExchange },
           });
         }
-
-        // (6) dup Security を delete
-        await tx.security.delete({ where: { id: dup.id } });
       });
 
       console.log(`    done.`);
