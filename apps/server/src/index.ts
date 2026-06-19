@@ -17,6 +17,7 @@ import { registerTodaiRoutes } from './routes/todai.js';
 import { registerFxRoutes } from './routes/fx.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerWakePcRoutes } from './routes/wake-pc.js';
+import { registerRankingRoutes } from './routes/ranking.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PWA_DIST_PATH = path.resolve(__dirname, '..', '..', 'pwa', 'dist');
@@ -50,6 +51,7 @@ async function main(): Promise<void> {
     registerFxRoutes(instance);
     registerSyncRoutes(instance);
     registerWakePcRoutes(instance);
+    registerRankingRoutes(instance);
   });
 
   // PWA を Fastify から静的配信 (本番モード)。

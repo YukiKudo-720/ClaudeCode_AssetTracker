@@ -6,6 +6,7 @@ import type {
   FxRatesResponse,
   HistoryTotalResponse,
   HoldingsResponse,
+  RankingResponse,
   ScrapeRunSummary,
   SyncStatusResponse,
   TodaiResponse,
@@ -68,6 +69,24 @@ export function useFxRates() {
   return useQuery({
     queryKey: ['fx-rates'],
     queryFn: () => apiFetch<FxRatesResponse>('/api/fx/rates'),
+  });
+}
+
+export function useRanking(params: {
+  sortBy: 'ratio' | 'amount';
+  dir: 'asc' | 'desc';
+  accountId?: string;
+  categoryId?: string;
+}) {
+  const q = new URLSearchParams();
+  q.set('sortBy', params.sortBy);
+  q.set('dir', params.dir);
+  if (params.accountId) q.set('accountId', params.accountId);
+  if (params.categoryId) q.set('categoryId', params.categoryId);
+  const qs = q.toString();
+  return useQuery({
+    queryKey: ['ranking', params],
+    queryFn: () => apiFetch<RankingResponse>(`/api/ranking?${qs}`),
   });
 }
 

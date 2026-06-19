@@ -330,6 +330,31 @@ export const TodaiResponseSchema = z.object({
 export type TodaiResponse = z.infer<typeof TodaiResponseSchema>;
 
 
+// /api/ranking — 当日 (= 最新 capturedDate) と前日の差分で銘柄ランキング。
+// cash は除外。query: sortBy (ratio|amount) / dir (asc|desc) / accountId? / categoryId?
+export const RankingItemSchema = z.object({
+  securityId: z.string(),
+  symbol: z.string(),
+  name: z.string(),
+  currency: z.string(),
+  assetClass: z.string(),
+  totalValueJpy: z.number(),
+  prevValueJpy: z.number().nullable(),
+  diffJpy: z.number(),
+  // 前日値が無い (新規 / カバレッジ外) と null
+  diffRatio: z.number().nullable(),
+  accounts: z.array(z.object({ institution: z.string(), label: z.string() })),
+  categories: z.array(z.object({ id: z.string(), name: z.string() })),
+});
+export type RankingItem = z.infer<typeof RankingItemSchema>;
+
+export const RankingResponseSchema = z.object({
+  capturedDate: z.string().nullable(),
+  prevCapturedDate: z.string().nullable(),
+  items: z.array(RankingItemSchema),
+});
+export type RankingResponse = z.infer<typeof RankingResponseSchema>;
+
 // /api/sync-status — source ごとの同期状況サマリ (バナー / 設定の更新状況用)
 export const SyncStatusSourceSchema = z.object({
   source: z.string(),

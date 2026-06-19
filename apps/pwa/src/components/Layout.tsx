@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom';
-import { LayoutDashboard, Wallet, TrendingUp, Tags, GraduationCap, History as HistoryIcon, Settings as SettingsIcon } from 'lucide-react';
+import { LayoutDashboard, Wallet, TrendingUp, Tags, GraduationCap, History as HistoryIcon, Trophy, Settings as SettingsIcon } from 'lucide-react';
 import { SyncIndicator } from './SyncIndicator.js';
 import { ConnectionErrorOverlay } from './ConnectionErrorOverlay.js';
 
@@ -10,6 +10,7 @@ const NAV = [
   { to: '/categories', label: 'テーマ', icon: Tags },
   { to: '/todai', label: '東大', icon: GraduationCap },
   { to: '/history', label: '履歴', icon: HistoryIcon },
+  { to: '/ranking', label: 'ランキング', icon: Trophy },
   { to: '/settings', label: '設定', icon: SettingsIcon },
 ];
 
