@@ -21,7 +21,7 @@ const ASSET_CLASS_OPTIONS: AssetClass[] = [
   'other',
 ];
 
-type SortBy = 'ratio' | 'amount';
+type SortBy = 'ratio' | 'amount' | 'value';
 type Dir = 'asc' | 'desc';
 
 function formatJpy(n: number): string {
@@ -52,7 +52,9 @@ function Row({ item, rank, sortBy }: { item: RankingItem; rank: number; sortBy: 
         <div className="font-medium">{item.symbol}</div>
         <div className="text-xs text-[var(--color-text-muted)] line-clamp-1">{item.name}</div>
       </td>
-      <td className="py-2 pr-2 text-right tabular-nums hidden md:table-cell">
+      <td
+        className={`py-2 pr-2 text-right tabular-nums hidden md:table-cell ${sortBy === 'value' ? 'font-semibold' : ''}`}
+      >
         {formatJpy(item.totalValueJpy)}
       </td>
       <td
@@ -93,26 +95,23 @@ export function Ranking() {
       {/* フィルタ + ソート */}
       <div className="flex flex-wrap gap-2 items-center">
         <div className="flex gap-1">
-          <button
-            onClick={() => setSortBy('ratio')}
-            className={`px-3 py-1.5 text-sm rounded border ${
-              sortBy === 'ratio'
-                ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
-                : 'bg-[var(--color-bg-elevated)] border-[var(--color-border)]'
-            }`}
-          >
-            %
-          </button>
-          <button
-            onClick={() => setSortBy('amount')}
-            className={`px-3 py-1.5 text-sm rounded border ${
-              sortBy === 'amount'
-                ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
-                : 'bg-[var(--color-bg-elevated)] border-[var(--color-border)]'
-            }`}
-          >
-            金額
-          </button>
+          {([
+            { key: 'ratio', label: '%' },
+            { key: 'amount', label: '騰落額' },
+            { key: 'value', label: '評価額' },
+          ] as const).map(({ key, label }) => (
+            <button
+              key={key}
+              onClick={() => setSortBy(key)}
+              className={`px-3 py-1.5 text-sm rounded border ${
+                sortBy === key
+                  ? 'bg-[var(--color-primary)] text-white border-[var(--color-primary)]'
+                  : 'bg-[var(--color-bg-elevated)] border-[var(--color-border)]'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
 
         <button

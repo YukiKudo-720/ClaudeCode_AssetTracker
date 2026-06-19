@@ -12,7 +12,8 @@ import { prisma } from '../db.js';
 // cash は除外 (騰落率の概念が無い)。
 
 const QuerySchema = z.object({
-  sortBy: z.enum(['ratio', 'amount']).default('ratio'),
+  // ratio = 騰落率 (%), amount = 騰落額 (¥), value = 評価額 (¥)
+  sortBy: z.enum(['ratio', 'amount', 'value']).default('ratio'),
   dir: z.enum(['asc', 'desc']).default('desc'),
   accountId: z.string().optional(),
   // assetClass フィルタ (stock / etf / mutual_fund / reit / bond / crypto / commodity / fx / other)
@@ -149,12 +150,13 @@ export function registerRankingRoutes(app: FastifyInstance): void {
     });
 
     items.sort((x, y) => {
-      // ratio は null を末尾に寄せる
       if (sortBy === 'ratio') {
+        // ratio は null を末尾に寄せる
         const xr = x.diffRatio ?? -Infinity;
         const yr = y.diffRatio ?? -Infinity;
         return xr - yr;
       }
+      if (sortBy === 'value') return x.totalValueJpy - y.totalValueJpy;
       return x.diffJpy - y.diffJpy;
     });
     if (dir === 'desc') items.reverse();
