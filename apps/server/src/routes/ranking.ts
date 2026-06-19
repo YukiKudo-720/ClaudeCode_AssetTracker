@@ -15,7 +15,8 @@ const QuerySchema = z.object({
   sortBy: z.enum(['ratio', 'amount']).default('ratio'),
   dir: z.enum(['asc', 'desc']).default('desc'),
   accountId: z.string().optional(),
-  categoryId: z.string().optional(),
+  // assetClass フィルタ (stock / etf / mutual_fund / reit / bond / crypto / commodity / fx / other)
+  assetClass: z.string().optional(),
 });
 
 export function registerRankingRoutes(app: FastifyInstance): void {
@@ -24,7 +25,7 @@ export function registerRankingRoutes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_query', detail: parsed.error.format() });
     }
-    const { sortBy, dir, accountId, categoryId } = parsed.data;
+    const { sortBy, dir, accountId, assetClass } = parsed.data;
 
     const latest = await prisma.holdingSnapshot.findFirst({
       orderBy: { capturedDate: 'desc' },
@@ -39,12 +40,12 @@ export function registerRankingRoutes(app: FastifyInstance): void {
       select: { capturedDate: true },
     });
 
-    const where = {
-      ...(accountId ? { holding: { accountId } } : {}),
-      ...(categoryId
-        ? { holding: { security: { categories: { some: { categoryId } } } } }
-        : {}),
-    };
+    // 注: HoldingSnapshot の where では holding が 1 つの object なので、
+    // accountId と assetClass を同時に絞るには holding 内でマージする必要がある。
+    const holdingWhere: { accountId?: string; security?: { assetClass: string } } = {};
+    if (accountId) holdingWhere.accountId = accountId;
+    if (assetClass) holdingWhere.security = { assetClass };
+    const where = Object.keys(holdingWhere).length > 0 ? { holding: holdingWhere } : {};
 
     const [todaySnaps, prevSnaps] = await Promise.all([
       prisma.holdingSnapshot.findMany({

@@ -1,11 +1,25 @@
 import { useState } from 'react';
 import { ArrowDown, ArrowUp } from 'lucide-react';
-import { useAccounts, useCategories, useRanking } from '../api/queries.js';
+import { useAccounts, useRanking } from '../api/queries.js';
 import {
+  ASSET_CLASS_LABELS,
   INSTITUTION_LABELS,
+  type AssetClass,
   type Institution,
   type RankingItem,
 } from '@asset-tracker/shared';
+
+// cash は backend で除外、fx は通常別軸なのでフィルタ候補からも外す。
+const ASSET_CLASS_OPTIONS: AssetClass[] = [
+  'stock',
+  'etf',
+  'mutual_fund',
+  'reit',
+  'bond',
+  'crypto',
+  'commodity',
+  'other',
+];
 
 type SortBy = 'ratio' | 'amount';
 type Dir = 'asc' | 'desc';
@@ -64,15 +78,14 @@ export function Ranking() {
   const [sortBy, setSortBy] = useState<SortBy>('ratio');
   const [dir, setDir] = useState<Dir>('desc');
   const [accountId, setAccountId] = useState<string>('');
-  const [categoryId, setCategoryId] = useState<string>('');
+  const [assetClass, setAssetClass] = useState<string>('');
 
   const accounts = useAccounts();
-  const categories = useCategories();
   const ranking = useRanking({
     sortBy,
     dir,
     accountId: accountId || undefined,
-    categoryId: categoryId || undefined,
+    assetClass: assetClass || undefined,
   });
 
   return (
@@ -119,20 +132,20 @@ export function Ranking() {
           <option value="">全口座</option>
           {accounts.data?.map((a) => (
             <option key={a.id} value={a.id}>
-              {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution} / {a.label}
+              {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}
             </option>
           ))}
         </select>
 
         <select
-          value={categoryId}
-          onChange={(e) => setCategoryId(e.target.value)}
+          value={assetClass}
+          onChange={(e) => setAssetClass(e.target.value)}
           className="px-2 py-1.5 text-sm rounded border border-[var(--color-border)] bg-[var(--color-bg-elevated)]"
         >
-          <option value="">全テーマ</option>
-          {categories.data?.categories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
+          <option value="">全種別</option>
+          {ASSET_CLASS_OPTIONS.map((c) => (
+            <option key={c} value={c}>
+              {ASSET_CLASS_LABELS[c]}
             </option>
           ))}
         </select>

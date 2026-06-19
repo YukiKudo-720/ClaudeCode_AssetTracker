@@ -76,13 +76,13 @@ export function useRanking(params: {
   sortBy: 'ratio' | 'amount';
   dir: 'asc' | 'desc';
   accountId?: string;
-  categoryId?: string;
+  assetClass?: string;
 }) {
   const q = new URLSearchParams();
   q.set('sortBy', params.sortBy);
   q.set('dir', params.dir);
   if (params.accountId) q.set('accountId', params.accountId);
-  if (params.categoryId) q.set('categoryId', params.categoryId);
+  if (params.assetClass) q.set('assetClass', params.assetClass);
   const qs = q.toString();
   return useQuery({
     queryKey: ['ranking', params],
