@@ -94,97 +94,115 @@ export function Ranking() {
     <div className="space-y-4">
       {/* 並び替え + フィルタを 1 枚のパネルにまとめる */}
       <div className="p-3 border border-[var(--color-border)] bg-[var(--color-bg-elevated)] rounded-lg space-y-3">
-        {/* セクション 1: 並び替え */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide min-w-[5rem]">
+        {/* セクション 1: 並び替え (スマホはラベル独立行、md+ は横並び) */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-center">
+          <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide md:min-w-[5rem]">
             <ArrowUpDown size={12} />
             並び替え
           </span>
-          {/* セグメントコントロール (連結ボタン) */}
-          <div className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden">
-            {([
-              { key: 'ratio', label: '%' },
-              { key: 'amount', label: '騰落額' },
-              { key: 'value', label: '評価額' },
-            ] as const).map(({ key, label }, i) => (
-              <button
-                key={key}
-                onClick={() => setSortBy(key)}
-                className={`px-3 py-1.5 text-sm transition ${
-                  i > 0 ? 'border-l border-[var(--color-border)]' : ''
-                } ${
-                  sortBy === key
-                    ? 'bg-[var(--color-primary)] text-white'
-                    : 'bg-[var(--color-bg)] hover:bg-[var(--color-bg-elevated)]'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
+          <div className="flex items-center gap-2">
+            {/* セグメントコントロール (連結ボタン)。スマホでは flex-1 で残幅を埋める */}
+            <div className="inline-flex flex-1 md:flex-initial rounded-md border border-[var(--color-border)] overflow-hidden">
+              {([
+                { key: 'ratio', label: '%' },
+                { key: 'amount', label: '騰落額' },
+                { key: 'value', label: '評価額' },
+              ] as const).map(({ key, label }, i) => (
+                <button
+                  key={key}
+                  onClick={() => setSortBy(key)}
+                  className={`flex-1 md:flex-initial px-3 py-1.5 text-sm transition ${
+                    i > 0 ? 'border-l border-[var(--color-border)]' : ''
+                  } ${
+                    sortBy === key
+                      ? 'bg-[var(--color-primary)] text-white'
+                      : 'bg-[var(--color-bg)] hover:bg-[var(--color-bg-elevated)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
 
-          <button
-            onClick={() => setDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-elevated)] transition"
-            title="昇順 / 降順 切替"
-          >
-            {dir === 'desc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
-            {dir === 'desc' ? '降順' : '昇順'}
-          </button>
+            <button
+              onClick={() => setDir((d) => (d === 'desc' ? 'asc' : 'desc'))}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:bg-[var(--color-bg-elevated)] transition flex-shrink-0"
+              title="昇順 / 降順 切替"
+            >
+              {dir === 'desc' ? <ArrowDown size={14} /> : <ArrowUp size={14} />}
+              {dir === 'desc' ? '降順' : '昇順'}
+            </button>
+          </div>
         </div>
 
         {/* セクション 2: フィルタ */}
-        <div className="flex flex-wrap items-center gap-2 pt-3 border-t border-[var(--color-border)]">
-          <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide min-w-[5rem]">
-            <Filter size={12} />
-            フィルタ
-          </span>
-          {/* 口座 select */}
-          <label className="flex items-center gap-1.5 pl-2 pr-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] focus-within:border-[var(--color-primary)] transition">
-            <Wallet size={14} className="text-[var(--color-text-muted)]" />
-            <select
-              value={accountId}
-              onChange={(e) => setAccountId(e.target.value)}
-              className="py-1.5 pr-2 text-sm bg-transparent border-0 focus:outline-none cursor-pointer"
-            >
-              <option value="">全口座</option>
-              {accounts.data?.map((a) => (
-                <option key={a.id} value={a.id}>
-                  {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}
-                </option>
-              ))}
-            </select>
-          </label>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center pt-3 border-t border-[var(--color-border)]">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide md:min-w-[5rem]">
+              <Filter size={12} />
+              フィルタ
+            </span>
+            {/* リセットはラベル横に置いて、フィルタ行の改行が増えないように */}
+            {(accountId || assetClass) && (
+              <button
+                onClick={() => {
+                  setAccountId('');
+                  setAssetClass('');
+                }}
+                className="md:hidden px-2 py-0.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline"
+              >
+                リセット
+              </button>
+            )}
+          </div>
+          <div className="flex items-center gap-2 flex-1">
+            {/* 口座 select (スマホでは半幅) */}
+            <label className="flex flex-1 md:flex-initial items-center gap-1.5 pl-2 pr-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] focus-within:border-[var(--color-primary)] transition min-w-0">
+              <Wallet size={14} className="text-[var(--color-text-muted)] flex-shrink-0" />
+              <select
+                value={accountId}
+                onChange={(e) => setAccountId(e.target.value)}
+                className="flex-1 md:flex-initial py-1.5 pr-2 text-sm bg-transparent border-0 focus:outline-none cursor-pointer min-w-0"
+              >
+                <option value="">全口座</option>
+                {accounts.data?.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {INSTITUTION_LABELS[a.institution as Institution] ?? a.institution}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          {/* 種別 select */}
-          <label className="flex items-center gap-1.5 pl-2 pr-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] focus-within:border-[var(--color-primary)] transition">
-            <Layers size={14} className="text-[var(--color-text-muted)]" />
-            <select
-              value={assetClass}
-              onChange={(e) => setAssetClass(e.target.value)}
-              className="py-1.5 pr-2 text-sm bg-transparent border-0 focus:outline-none cursor-pointer"
-            >
-              <option value="">全種別</option>
-              {ASSET_CLASS_OPTIONS.map((c) => (
-                <option key={c} value={c}>
-                  {ASSET_CLASS_LABELS[c]}
-                </option>
-              ))}
-            </select>
-          </label>
+            {/* 種別 select */}
+            <label className="flex flex-1 md:flex-initial items-center gap-1.5 pl-2 pr-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] focus-within:border-[var(--color-primary)] transition min-w-0">
+              <Layers size={14} className="text-[var(--color-text-muted)] flex-shrink-0" />
+              <select
+                value={assetClass}
+                onChange={(e) => setAssetClass(e.target.value)}
+                className="flex-1 md:flex-initial py-1.5 pr-2 text-sm bg-transparent border-0 focus:outline-none cursor-pointer min-w-0"
+              >
+                <option value="">全種別</option>
+                {ASSET_CLASS_OPTIONS.map((c) => (
+                  <option key={c} value={c}>
+                    {ASSET_CLASS_LABELS[c]}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          {/* リセットボタン (フィルタが効いているときだけ表示) */}
-          {(accountId || assetClass) && (
-            <button
-              onClick={() => {
-                setAccountId('');
-                setAssetClass('');
-              }}
-              className="px-2 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline"
-            >
-              リセット
-            </button>
-          )}
+            {/* md+ ではリセットを行末に */}
+            {(accountId || assetClass) && (
+              <button
+                onClick={() => {
+                  setAccountId('');
+                  setAssetClass('');
+                }}
+                className="hidden md:inline-block px-2 py-1.5 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)] underline flex-shrink-0"
+              >
+                リセット
+              </button>
+            )}
+          </div>
         </div>
       </div>
 
