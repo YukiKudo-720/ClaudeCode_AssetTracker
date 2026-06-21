@@ -63,43 +63,56 @@ export function Layout() {
           </div>
         </nav>
 
-        {/* スマホ: ハンバーガーで開閉する縦リスト (md 未満かつ menuOpen) */}
-        {menuOpen && (
-          <nav className="md:hidden bg-[var(--color-primary-soft)] text-white border-t border-white/10">
-            <div className="max-w-5xl mx-auto flex flex-col">
-              {NAV.map(({ to, label, icon: Icon, end }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  end={end}
-                  className={({ isActive }) =>
-                    'flex items-center gap-2 px-4 py-3 text-sm border-l-4 ' +
-                    (isActive
-                      ? 'border-[var(--color-accent)] bg-white/10 text-[var(--color-accent)]'
-                      : 'border-transparent text-white/90 hover:bg-white/5')
-                  }
-                >
-                  <Icon size={18} />
-                  {label}
-                </NavLink>
-              ))}
-            </div>
-          </nav>
-        )}
       </div>
+
+      {/* スマホ: 画面下からスライドアップするボトムシート風メニュー。
+          translate で常時 DOM に居つつ表示状態を切替 (transition で滑らかに)。
+          ヘッダー固定領域とは独立した z-40 のオーバーレイ。 */}
+      <nav
+        className={`md:hidden fixed inset-x-0 bottom-0 z-40 bg-[var(--color-primary-soft)] text-white rounded-t-2xl shadow-2xl border-t border-white/10 transition-transform duration-300 ease-out ${
+          menuOpen ? 'translate-y-0' : 'translate-y-full'
+        }`}
+        aria-hidden={!menuOpen}
+      >
+        {/* ボトムシートの慣習: 上端に握り表示 (装飾のみ、ドラッグ不可) */}
+        <div className="flex justify-center pt-2 pb-1">
+          <div className="w-10 h-1 rounded-full bg-white/30" />
+        </div>
+        <div className="max-w-5xl mx-auto flex flex-col max-h-[70vh] overflow-y-auto pb-4">
+          {NAV.map(({ to, label, icon: Icon, end }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={end}
+              className={({ isActive }) =>
+                'flex items-center gap-2 px-4 py-3 text-sm border-l-4 ' +
+                (isActive
+                  ? 'border-[var(--color-accent)] bg-white/10 text-[var(--color-accent)]'
+                  : 'border-transparent text-white/90 hover:bg-white/5')
+              }
+            >
+              <Icon size={18} />
+              {label}
+            </NavLink>
+          ))}
+        </div>
+      </nav>
 
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6">
         <Outlet />
       </main>
 
       {/* スマホのみ: 画面右下に半透明 FAB のハンバーガーボタン。
-          片手操作で押しやすい位置に出す。背後の内容が見えるよう 70% 半透明 + blur。
-          メニュー開閉時に X / Menu アイコン切替。 */}
+          Tailwind の bg-[var(...)]/N は CSS 変数だと opacity 修飾子が効かないため、
+          color-mix で直接 60% primary + 40% transparent を作って inline で適用。 */}
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
         aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
-        className="md:hidden fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-[var(--color-primary)]/70 backdrop-blur-sm shadow-lg flex items-center justify-center text-white active:scale-95 hover:bg-[var(--color-primary)]/90 transition"
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--color-primary) 60%, transparent)',
+        }}
+        className="md:hidden fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full backdrop-blur-md shadow-lg flex items-center justify-center text-white active:scale-95 transition"
       >
         {menuOpen ? <X size={22} /> : <Menu size={22} />}
       </button>
