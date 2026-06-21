@@ -28,6 +28,20 @@ function formatDateTime(iso: string | null): string {
   });
 }
 
+// MF lastUpdated は ISO 8601 で送られてくる。古いデータ (文字列「今」等) も
+// 上書きされるまでは混ざる可能性があるので、パース失敗時は素のまま返す。
+function formatMfLastUpdated(iso: string | null): string {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleString('ja-JP', {
+    month: 'numeric',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 function formatAgo(iso: string | null): string {
   if (!iso) return '実行履歴なし';
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -391,32 +405,32 @@ export function Settings() {
                 return (
                   <div
                     key={a.institution}
-                    className={`p-2 border rounded text-sm flex items-center justify-between gap-2 ${tone}`}
+                    className={`p-2 border rounded text-sm flex flex-col gap-0.5 ${tone}`}
                   >
-                    <span className="font-medium flex items-baseline gap-1">
-                      {a.institution}
-                      {isSbi && (
-                        <span className="text-[10px] text-[var(--color-text-muted)]">
-                          [SBI 系]
-                        </span>
-                      )}
-                    </span>
-                    <span className="text-xs flex items-baseline gap-1">
-                      {a.hasError ? (
-                        <span className="text-[var(--color-negative)]">
-                          エラー{a.errorMessage ? `: ${a.errorMessage.slice(0, 30)}` : ''}
-                        </span>
-                      ) : a.inProgress ? (
-                        <span className="text-[var(--color-accent)]">更新中 (phase {a.phase})</span>
-                      ) : (
-                        <span className="text-[var(--color-positive)]">完了</span>
-                      )}
-                      {a.lastUpdated && (
-                        <span className="text-[var(--color-text-muted)]">
-                          ({a.lastUpdated})
-                        </span>
-                      )}
-                    </span>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium flex items-baseline gap-1">
+                        {a.institution}
+                        {isSbi && (
+                          <span className="text-[10px] text-[var(--color-text-muted)]">
+                            [SBI 系]
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-xs">
+                        {a.hasError ? (
+                          <span className="text-[var(--color-negative)]">
+                            エラー{a.errorMessage ? `: ${a.errorMessage.slice(0, 30)}` : ''}
+                          </span>
+                        ) : a.inProgress ? (
+                          <span className="text-[var(--color-accent)]">更新中 (phase {a.phase})</span>
+                        ) : (
+                          <span className="text-[var(--color-positive)]">完了</span>
+                        )}
+                      </span>
+                    </div>
+                    <div className="text-xs text-[var(--color-text-muted)]">
+                      最終取得: {formatMfLastUpdated(a.lastUpdated)}
+                    </div>
                   </div>
                 );
               })}

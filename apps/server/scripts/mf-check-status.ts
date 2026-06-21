@@ -1,13 +1,22 @@
-// MF の各連携口座の更新ステータスを取得する。
-// /accounts ページの各口座行を解析して、更新中フラグ / エラー / 最終更新時刻 を返す。
+// MF /accounts の各連携口座の更新ステータスを取得する。
+// DOM 構造 (検証済み):
+//   <tr id="{accountId}">
+//     <td class="service">機関名リンク + (本サイト)</td>
+//     <td class="number">残高</td>
+//     <td class="created">
+//       <p>登録日 yyyy/mm/dd</p>
+//       <p>(MM/DD HH:mm)  ← 最終更新時刻</p>
+//     </td>
+//     <td class="account-status">
+//       <span style="display:none">更新中</span>  ← 隠れている方
+//       <span>正常 / 失敗 / 取得中 など</span>    ← 表示されている方
+//     </td>
+//   </tr>
 //
 // 使い方:
-//   tsx scripts/mf-check-status.ts [--headless]
-//
+//   tsx scripts/mf-check-status.ts [--headless] [--dump]
 // exit code:
-//   0 = 全口座 idle (= 更新中なし、エラーなし)
-//   1 = まだ更新中の口座あり
-//   2 = エラー (要再連携 / 認証失敗) の口座あり
+//   0 = 全口座 idle / 1 = まだ更新中の口座あり / 2 = エラー (要再連携 / 認証失敗) あり
 
 import '../src/env.js';
 import path from 'node:path';
@@ -23,10 +32,12 @@ const HEADLESS = process.argv.includes('--headless');
 const DUMP = process.argv.includes('--dump');
 
 interface AccountStatus {
+  accountId: string;
   name: string;
   inProgress: boolean;
   error: boolean;
   errorMessage: string | null;
+  // ISO 8601 (例: '2026-06-22T00:25:00+09:00') もしくは null
   lastUpdated: string | null;
 }
 
@@ -41,24 +52,27 @@ async function dumpDebug(page: Page, slug: string): Promise<void> {
   }
 }
 
-// MF の口座行のテキストから状態を抽出。
-// MF は「更新中」「再連携が必要です」「○分前」「○時間前」「○月○日」のような文言を出すので
-// 正規表現で柔軟に拾う。
-function parseRowText(name: string, text: string): AccountStatus {
-  const inProgress = /更新中|aggregating|処理中/i.test(text);
-  const errorRegex = /再連携|要ログイン|エラー|失敗|認証|有効期限|expired|expired session/i;
-  const error = errorRegex.test(text);
-  const errorMatch = text.match(/再連携[^\n]*|要ログイン[^\n]*|エラー[^\n]*|失敗[^\n]*/);
-  const lastUpdatedMatch = text.match(
-    /(\d{4}\/\d{1,2}\/\d{1,2}\s*\d{1,2}:\d{2})|(\d+\s*(?:分|時間|日)\s*前)|(今)/,
+// 「(06/22 00:25)」 のような MF 表示を ISO 8601 文字列に変換。
+// 年を含まないので今年とみなし、未来日付ならば前年と判定する。
+function parseMfTimestamp(raw: string): string | null {
+  const m = raw.match(/(\d{1,2})\/(\d{1,2})\s+(\d{1,2}):(\d{1,2})/);
+  if (!m) return null;
+  const now = new Date();
+  const month = Number(m[1]);
+  const day = Number(m[2]);
+  const hour = Number(m[3]);
+  const min = Number(m[4]);
+  // JST で組み立て: +09:00 オフセット
+  let year = now.getFullYear();
+  const candidate = new Date(
+    `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}:00+09:00`,
   );
-  return {
-    name,
-    inProgress,
-    error,
-    errorMessage: error ? (errorMatch?.[0]?.trim() ?? '不明') : null,
-    lastUpdated: lastUpdatedMatch?.[0]?.trim() ?? null,
-  };
+  // 未来日付 (= 今より 1 日以上先) なら前年扱い
+  if (candidate.getTime() > now.getTime() + 24 * 60 * 60 * 1000) {
+    year -= 1;
+    return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T${String(hour).padStart(2, '0')}:${String(min).padStart(2, '0')}:00+09:00`;
+  }
+  return candidate.toISOString();
 }
 
 async function main(): Promise<void> {
@@ -77,33 +91,38 @@ async function main(): Promise<void> {
 
     if (DUMP) await dumpDebug(page, 'check-status');
 
-    // 口座行: テーブル形式とリスト形式の両方を試す
-    const rowsLocator = page.locator(
-      'table tbody tr, .account_list li, [data-account], section.account',
-    );
+    // 「本サイト」を含む tr (= MF 自動連携の口座行) を全部拾う
+    const rowsLocator = page.locator('tr').filter({ hasText: '本サイト' });
     const count = await rowsLocator.count();
     if (count === 0) {
       await dumpDebug(page, 'check-status-no-rows');
-      throw new Error(
-        '口座行が見つかりませんでした。data/mf-debug/ の dump で DOM を確認してください。',
-      );
+      throw new Error('連携口座行が見つかりませんでした。data/mf-debug/ の dump で DOM を確認してください。');
     }
 
     const accounts: AccountStatus[] = [];
     for (let i = 0; i < count; i++) {
       const row = rowsLocator.nth(i);
-      const text = (await row.innerText().catch(() => '')).trim();
-      if (!text) continue;
-      const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
-      const name = lines[0] ?? '';
-      // フィルタ:
-      // - 「(本サイト)」を含む行 = MF の自動連携口座のみ対象 (更新の概念がある)
-      // - 手動口座 (「現金保有」「webull証券」など) や表ヘッダー行は除外
-      if (!/本サイト/.test(text)) continue;
-      if (!name || name.length > 80) continue;
-      // 末尾の「(  本サイト )」を機関名から除去して読みやすく
-      const cleanedName = name.replace(/\s*\(\s*本サイト\s*\)\s*$/, '').trim();
-      accounts.push(parseRowText(cleanedName, text));
+      // 機関名: td.service の最初の <a> のテキスト
+      const name = (await row.locator('td.service a').first().innerText().catch(() => '')).trim();
+      if (!name) continue;
+      const accountId = (await row.getAttribute('id')) ?? '';
+
+      // 最終更新: td.created の 2 番目の <p>
+      const rawUpdated = (
+        await row.locator('td.created p').nth(1).innerText().catch(() => '')
+      ).trim();
+      const lastUpdated = rawUpdated ? parseMfTimestamp(rawUpdated) : null;
+
+      // ステータス: td.account-status の表示されている方 (display:none 以外) の span
+      // MF は js-status-sentence-span にメインのテキストを入れる。
+      const visibleStatusText = (
+        await row.locator('td.account-status span:not([style*="display: none"])').last().innerText().catch(() => '')
+      ).trim();
+      const inProgress = /更新中|取得中|処理中/.test(visibleStatusText);
+      const error = /失敗|エラー|再連携|要ログイン|認証/.test(visibleStatusText);
+      const errorMessage = error ? visibleStatusText : null;
+
+      accounts.push({ accountId, name, inProgress, error, errorMessage, lastUpdated });
     }
 
     const inProgress = accounts.filter((a) => a.inProgress).map((a) => a.name);
