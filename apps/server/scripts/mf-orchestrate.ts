@@ -43,7 +43,7 @@ const TSX_CLI = resolveTsxCli();
 
 const SBI_INSTITUTIONS = ['SBI証券', '住信SBIネット銀行'];
 
-const PHASE_A_INITIAL_WAIT_MS = 5 * 60 * 1000;
+const PHASE_A_INITIAL_WAIT_MS = 1 * 60 * 1000;
 const PHASE_A_POLL_INTERVAL_MS = 60 * 1000;
 const PHASE_A_POLL_MAX_DURATION_MS = 20 * 60 * 1000; // フェーズ A の poll は最大 20 分で打ち切り
 const PHASE_B_POST_UPDATE_WAIT_MS = 5 * 60 * 1000;
