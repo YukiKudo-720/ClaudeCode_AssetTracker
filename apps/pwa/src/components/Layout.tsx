@@ -103,16 +103,15 @@ export function Layout() {
       </main>
 
       {/* スマホのみ: 画面右下に半透明 FAB のハンバーガーボタン。
-          Tailwind の bg-[var(...)]/N は CSS 変数だと opacity 修飾子が効かないため、
-          color-mix で直接 60% primary + 40% transparent を作って inline で適用。 */}
+          Tailwind v4 では @theme で定義した色を使うときは `bg-primary/40` のように
+          短い形で書く必要がある。`bg-[var(--color-primary)]/40` 形式は opacity が
+          効かない (色だけそのまま、alpha は無視される) のでハマりやすい。
+          backdrop-blur-md は背景に blur をかけて「透けてる」感を強める。 */}
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
         aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
-        style={{
-          backgroundColor: 'color-mix(in srgb, var(--color-primary) 60%, transparent)',
-        }}
-        className="md:hidden fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full backdrop-blur-md shadow-lg flex items-center justify-center text-white active:scale-95 transition"
+        className="md:hidden fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-primary/40 backdrop-blur-md shadow-lg flex items-center justify-center text-white active:scale-95 transition"
       >
         {menuOpen ? <X size={22} /> : <Menu size={22} />}
       </button>
