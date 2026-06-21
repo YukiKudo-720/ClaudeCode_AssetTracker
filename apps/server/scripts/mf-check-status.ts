@@ -31,6 +31,16 @@ const DEBUG_DIR = path.resolve(__dirname, '..', '..', '..', 'data', 'mf-debug');
 const HEADLESS = process.argv.includes('--headless');
 const DUMP = process.argv.includes('--dump');
 
+// このツールが MF 経由で取得対象としている機関のみを返す (= scraper.ts の
+// INSTITUTION_MAP と同じセット)。MF 上の他の連携 (カード類 / ポイント等) は無視。
+const TRACKED_INSTITUTIONS = new Set([
+  '楽天銀行',
+  '三菱UFJ銀行',
+  '住信SBIネット銀行',
+  '楽天証券',
+  'SBI証券',
+]);
+
 interface AccountStatus {
   accountId: string;
   name: string;
@@ -105,6 +115,7 @@ async function main(): Promise<void> {
       // 機関名: td.service の最初の <a> のテキスト
       const name = (await row.locator('td.service a').first().innerText().catch(() => '')).trim();
       if (!name) continue;
+      if (!TRACKED_INSTITUTIONS.has(name)) continue;
       const accountId = (await row.getAttribute('id')) ?? '';
 
       // 最終更新: td.created の 2 番目の <p>

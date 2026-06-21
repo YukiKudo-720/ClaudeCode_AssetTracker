@@ -27,6 +27,12 @@ export function registerMfStatusRoutes(app: FastifyInstance): void {
     }
     const { phase, checkedAt, accounts } = parsed.data;
     const checked = new Date(checkedAt);
+    // フィルタが厳格化されたため、受信リストに含まれない古いレコード (トラッキング
+    // 対象外の機関) は削除して綺麗に保つ (リスト全置換セマンティクス)。
+    const receivedNames = accounts.map((a) => a.name);
+    await prisma.mfAccountStatus.deleteMany({
+      where: { institution: { notIn: receivedNames } },
+    });
     for (const a of accounts) {
       await prisma.mfAccountStatus.upsert({
         where: { institution: a.name },

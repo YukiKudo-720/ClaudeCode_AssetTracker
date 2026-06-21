@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import type { ScrapeRunSummary, SyncStatusSource } from '@asset-tracker/shared';
-import { CheckCircle2, AlertTriangle, Clock, Eye, EyeOff } from 'lucide-react';
+import type {
+  MfStatusResponse,
+  ScrapeRunSummary,
+  SyncStatusSource,
+} from '@asset-tracker/shared';
+import { CheckCircle2, AlertTriangle, Clock, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import {
   apiFetch,
   ApiError,
@@ -168,7 +172,16 @@ function ConnectivityDiagnostics() {
   );
 }
 
-function SyncStatusCard({ row, thresholdHours }: { row: SyncStatusSource; thresholdHours: number }) {
+function SyncStatusCard({
+  row,
+  thresholdHours,
+  mfStatus,
+}: {
+  row: SyncStatusSource;
+  thresholdHours: number;
+  mfStatus?: MfStatusResponse | undefined;
+}) {
+  const [expanded, setExpanded] = useState(false);
   const label = SOURCE_LABELS[row.source] ?? row.source;
   const isError =
     row.latestRun?.status === 'error' || row.latestRun?.status === 'needs_2fa';
@@ -225,6 +238,47 @@ function SyncStatusCard({ row, thresholdHours }: { row: SyncStatusSource; thresh
           </div>
         )}
       </dl>
+
+      {/* MoneyForward カードのみ、折りたたみで各連携口座の詳細を表示 */}
+      {row.source === 'moneyforward' && mfStatus && mfStatus.accounts.length > 0 && (
+        <div className="mt-2 pt-2 border-t border-[var(--color-border)]">
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          >
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            連携口座詳細 ({mfStatus.accounts.length})
+          </button>
+          {expanded && (
+            <div className="mt-2 space-y-1">
+              {mfStatus.accounts.map((a) => {
+                const accTone = a.hasError
+                  ? 'text-[var(--color-negative)]'
+                  : a.inProgress
+                    ? 'text-[var(--color-accent)]'
+                    : 'text-[var(--color-positive)]';
+                return (
+                  <div
+                    key={a.institution}
+                    className="flex items-baseline justify-between gap-2 text-xs py-1 border-b border-[var(--color-border)] last:border-b-0"
+                  >
+                    <span className="font-medium text-[var(--color-text)]">{a.institution}</span>
+                    <span className="flex items-baseline gap-2">
+                      <span className={accTone}>
+                        {a.hasError ? 'エラー' : a.inProgress ? '更新中' : '完了'}
+                      </span>
+                      <span className="text-[var(--color-text-muted)] tabular-nums">
+                        {formatMfLastUpdated(a.lastUpdated)}
+                      </span>
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -363,78 +417,12 @@ export function Settings() {
                 key={row.source}
                 row={row}
                 thresholdHours={syncStatus.data.staleThresholdHours}
+                mfStatus={row.source === 'moneyforward' ? mfStatus.data : undefined}
               />
             ))}
             <p className="text-xs text-[var(--color-text-muted)]">
               {syncStatus.data.staleThresholdHours} 時間以内に成功実行が無いと「更新なし」扱い。
             </p>
-          </div>
-        )}
-      </section>
-
-      <section>
-        <h2 className="text-base font-semibold mb-3">MF 連携口座の状況</h2>
-        {mfStatus.isLoading && (
-          <p className="text-sm text-[var(--color-text-muted)]">読み込み中…</p>
-        )}
-        {mfStatus.isError && (
-          <p className="text-sm text-[var(--color-negative)]">取得できませんでした</p>
-        )}
-        {mfStatus.data && mfStatus.data.accounts.length === 0 && (
-          <p className="text-sm text-[var(--color-text-muted)]">
-            まだ orchestrate 未実行。Pi cron 発火後に表示されます。
-          </p>
-        )}
-        {mfStatus.data && mfStatus.data.accounts.length > 0 && (
-          <div className="space-y-2">
-            <p className="text-xs text-[var(--color-text-muted)]">
-              最終チェック:{' '}
-              {mfStatus.data.checkedAt
-                ? new Date(mfStatus.data.checkedAt).toLocaleString('ja-JP')
-                : '—'}
-            </p>
-            <div className="grid gap-1.5 md:grid-cols-2">
-              {mfStatus.data.accounts.map((a) => {
-                const isSbi =
-                  a.institution === 'SBI証券' || a.institution === '住信SBIネット銀行';
-                const tone = a.hasError
-                  ? 'border-[var(--color-negative)] bg-[var(--color-negative)]/5'
-                  : a.inProgress
-                    ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
-                    : 'border-[var(--color-border)] bg-[var(--color-bg-elevated)]';
-                return (
-                  <div
-                    key={a.institution}
-                    className={`p-2 border rounded text-sm flex flex-col gap-0.5 ${tone}`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-medium flex items-baseline gap-1">
-                        {a.institution}
-                        {isSbi && (
-                          <span className="text-[10px] text-[var(--color-text-muted)]">
-                            [SBI 系]
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-xs">
-                        {a.hasError ? (
-                          <span className="text-[var(--color-negative)]">
-                            エラー{a.errorMessage ? `: ${a.errorMessage.slice(0, 30)}` : ''}
-                          </span>
-                        ) : a.inProgress ? (
-                          <span className="text-[var(--color-accent)]">更新中 (phase {a.phase})</span>
-                        ) : (
-                          <span className="text-[var(--color-positive)]">完了</span>
-                        )}
-                      </span>
-                    </div>
-                    <div className="text-xs text-[var(--color-text-muted)]">
-                      最終取得: {formatMfLastUpdated(a.lastUpdated)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
           </div>
         )}
       </section>
