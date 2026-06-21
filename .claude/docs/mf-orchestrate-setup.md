@@ -71,14 +71,36 @@ crontab -e
 
 例:
 
+ログは `/srv/asset-tracker/logs/` に一元化 (logrotate で日次 60 日保持。下の logrotate セクション参照)。
+
+```cron
+LOG=/srv/asset-tracker/logs/pi-cron.log
+
+# === 平日 (月-金) ===
+0  7  * * 1-5  /srv/asset-tracker/scripts/pi-wake-and-scrape.sh >> $LOG 2>&1
+30 8  * * 1-5  /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >> $LOG 2>&1
+0  17 * * 1-5  /srv/asset-tracker/scripts/pi-wake-and-scrape.sh >> $LOG 2>&1
+0  22 * * 1-5  /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >> $LOG 2>&1
+
+# === 土曜 (朝 8:30 MF更新あり / 18時 wake-and-scrape のみ) ===
+30 8  * * 6    /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >> $LOG 2>&1
+0  18 * * 6    /srv/asset-tracker/scripts/pi-wake-and-scrape.sh >> $LOG 2>&1
+
+# === 日曜 (18時 MF更新あり) ===
+0  18 * * 0    /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >> $LOG 2>&1
+
+# === SBI リトライ判定 (全日 30 分毎、state あるときだけ実発火) ===
+*/30 * * * *   /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh sbi-retry-check >> $LOG 2>&1
 ```
-# 夜メイン: 22:00 (日本投信基準価額確定後)
-0  22 * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
-# 朝メイン: 8:30 (米株 ET 16:00 終値取込)
-30 8  * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
-# SBI リトライ判定: 30 分毎
-*/30 * * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh sbi-retry-check >>~/asset-tracker-logs/cron.log 2>&1
+
+## logrotate (初回のみ install)
+
+```bash
+sudo cp /srv/asset-tracker/scripts/logrotate-asset-tracker /etc/logrotate.d/asset-tracker
+sudo logrotate -d /etc/logrotate.d/asset-tracker   # dry-run で動作確認
 ```
+
+仕様: 日次ローテート / 60 日保持 / gzip 圧縮 / copytruncate (アプリ停止不要)。
 
 スケジュール根拠:
 - **22:00 夜メイン**: 日本株/ETF/REIT/投信 が当日終値で確定済。米株は ET 当日扱い

@@ -31,7 +31,8 @@ REPO_ROOT='/srv/asset-tracker'
 DATA_DIR="$REPO_ROOT/data"
 STATE_FILE="$DATA_DIR/mf-orchestrate-state.json"
 LOCK_FILE="$DATA_DIR/mf-orchestrate.lock"
-LOG_DIR="${HOME}/asset-tracker-logs"
+# ログはリポジトリ内 logs/ に一元化 (logrotate で日次 60 日保持)
+LOG_DIR="$REPO_ROOT/logs"
 LOG_FILE="$LOG_DIR/mf-orchestrate-controller.log"
 
 PC_TS_IP='100.99.142.112'

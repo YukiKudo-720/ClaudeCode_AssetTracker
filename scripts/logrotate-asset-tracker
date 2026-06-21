@@ -1,0 +1,9 @@
+/srv/asset-tracker/logs/*.log {
+    daily            # 日次ローテート (Pi の cron.daily で深夜発火)
+    rotate 60        # 60 日分保持 (それより古いものは自動削除)
+    compress         # gzip 圧縮
+    delaycompress    # 1 世代前 (昨日) は圧縮しない (即時参照しやすく)
+    missingok        # ファイルが無くてもエラーにしない
+    notifempty       # 空ファイルはローテートしない
+    copytruncate     # アプリ停止不要 (= 既存ファイルを truncate)
+}
