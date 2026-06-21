@@ -147,7 +147,10 @@ model HoldingSnapshot {
   id                  String   @id @default(cuid())
   snapshotId          String
   holdingId           String
-  capturedDate        String   // JST "YYYY-MM-DD" — Holding 単位でも upsert キー
+  capturedDate        String   // JST "YYYY-MM-DD" — scrape 実行時刻ベース (互換 / デバッグ用)
+  // 市場別の「1 日」基準。日本株 = JST 日付、米株 = JST から 6h 引いた日付 (= ET 16:00 終値基準)。
+  // 集計の前日比 / 騰落率はこちらをキーにする。Holding 単位の upsert キー。
+  marketDate          String
   quantity            Decimal
   marketPriceNative   Decimal
   marketPriceJpy      Decimal
@@ -160,7 +163,8 @@ model HoldingSnapshot {
   accountSnapshot AccountSnapshot @relation(fields: [snapshotId], references: [id])
   holding         Holding         @relation(fields: [holdingId], references: [id])
 
-  @@unique([holdingId, capturedDate])
+  @@unique([holdingId, marketDate])
+  @@index([holdingId, marketDate])
   @@index([holdingId, capturedDate])
 }
 

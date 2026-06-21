@@ -10,7 +10,7 @@ import { postSync } from '../sync-client.js';
 import type { Adapter, AdapterContext } from '../adapters/types.js';
 import { NeedsLoginError } from '../adapters/types.js';
 import { persistAccountUpdate } from './persist.js';
-import { toJstDateString } from '../lib/date.js';
+import { toJstDateString, toMarketDateString } from '../lib/date.js';
 
 const ADAPTERS: Record<DataSource, Adapter | null> = {
   moneyforward: moneyforwardAdapter,
@@ -137,15 +137,28 @@ async function carryOverFailedSource(source: DataSource): Promise<number> {
       },
     });
 
+    // 前日 (= prev.capturedDate) の HoldingSnapshot を holding 単位で取り、
+    // 当日の marketDate (region 別) で upsert する。日本株は JST 9h ベース、
+    // 米株は ET ベースなので、carry-over でも marketDate が銘柄ごとに正しく入る。
     const prevHoldings = await prisma.holdingSnapshot.findMany({
       where: { capturedDate: prev.capturedDate, holding: { accountId: a.id } },
+      include: { holding: { include: { security: { select: { region: true } } } } },
     });
+    const now = new Date();
     for (const hs of prevHoldings) {
+      const region = hs.holding.security.region;
+      const marketDate = toMarketDateString(now, region);
+      // 当日の marketDate に既に snapshot がある (= 別経路で更新済み) なら触らない
+      const existed = await prisma.holdingSnapshot.findUnique({
+        where: { holdingId_marketDate: { holdingId: hs.holdingId, marketDate } },
+      });
+      if (existed) continue;
       await prisma.holdingSnapshot.create({
         data: {
           snapshotId: newSnap.id,
           holdingId: hs.holdingId,
           capturedDate: today,
+          marketDate,
           quantity: hs.quantity,
           marketPriceNative: hs.marketPriceNative,
           marketPriceJpy: hs.marketPriceJpy,

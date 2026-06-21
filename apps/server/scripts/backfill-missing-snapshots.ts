@@ -103,13 +103,15 @@ async function main(): Promise<void> {
         },
       });
 
+      // backfill では marketDate を「前日 holding の marketDate + 1 日」で連続させる
+      // (region に依存しない単純なシフト = 過去データの埋め戻し用なので厳密性は要らない)
       const prevHoldings = await prisma.holdingSnapshot.findMany({
         where: { capturedDate: prev.capturedDate, holding: { accountId: a.id } },
       });
       for (const hs of prevHoldings) {
-        // 当日 HoldingSnapshot が既に他経路であるなら触らない
+        // 当日 HoldingSnapshot (= marketDate=date) が既に他経路であるなら触らない
         const existed = await prisma.holdingSnapshot.findUnique({
-          where: { holdingId_capturedDate: { holdingId: hs.holdingId, capturedDate: date } },
+          where: { holdingId_marketDate: { holdingId: hs.holdingId, marketDate: date } },
         });
         if (existed) continue;
         await prisma.holdingSnapshot.create({
@@ -117,6 +119,7 @@ async function main(): Promise<void> {
             snapshotId: newSnap.id,
             holdingId: hs.holdingId,
             capturedDate: date,
+            marketDate: date,
             quantity: hs.quantity,
             marketPriceNative: hs.marketPriceNative,
             marketPriceJpy: hs.marketPriceJpy,

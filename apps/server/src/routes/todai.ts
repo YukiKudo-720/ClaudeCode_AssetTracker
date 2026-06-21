@@ -9,11 +9,6 @@ const TODAI_KIND = 'todai';
 export function registerTodaiRoutes(app: FastifyInstance): void {
   // 集計 + 全資産 + タグ一覧
   app.get('/api/todai', async () => {
-    const latest = await prisma.holdingSnapshot.findFirst({
-      orderBy: { capturedDate: 'desc' },
-      select: { capturedDate: true },
-    });
-
     const tagRows = await prisma.category.findMany({
       where: { kind: TODAI_KIND },
       orderBy: { sortOrder: 'asc' },
@@ -28,12 +23,12 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
     // タグの大カテゴリ id を返す (自身が大なら自身、小なら parentId)
     const bigIdOf = (tagId: string): string => byId.get(tagId)?.parentId ?? tagId;
 
-    if (!latest) {
-      return { capturedDate: null, totalJpy: 0, tags, bigGroups: [], assets: [] };
-    }
-
-    const snapshots = await prisma.holdingSnapshot.findMany({
-      where: { capturedDate: latest.capturedDate },
+    // 直近 14 日の HoldingSnapshot を取り、holdingId ごとに最新 marketDate のものを採用。
+    // 日本株と米株で「最新の 1 日」がずれる場合も各銘柄の最新値を正しく取れる。
+    const sinceMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const sinceStr = new Date(sinceMs).toISOString().slice(0, 10);
+    const all = await prisma.holdingSnapshot.findMany({
+      where: { marketDate: { gte: sinceStr } },
       include: {
         holding: {
           include: {
@@ -42,7 +37,22 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
           },
         },
       },
+      orderBy: { marketDate: 'desc' },
     });
+    if (all.length === 0) {
+      return { capturedDate: null, totalJpy: 0, tags, bigGroups: [], assets: [] };
+    }
+
+    const byHolding = new Map<string, typeof all>();
+    for (const hs of all) {
+      const arr = byHolding.get(hs.holdingId) ?? [];
+      arr.push(hs);
+      byHolding.set(hs.holdingId, arr);
+    }
+    const snapshots = [...byHolding.values()].map((arr) => arr[0]!).filter(Boolean);
+    // 表示用日付: 全 holding 最新 marketDate の最大
+    const latestDateSet = new Set(snapshots.map((hs) => hs.marketDate));
+    const headerLatest = [...latestDateSet].sort().reverse()[0] ?? null;
 
     // (symbol, currency) 単位に集約 (口座またぎ + adapter ごとの exchange 差を吸収) + todai タグ抽出。
     // canonical (= 最古の Security) を採用するため createdAt 昇順でソートしてから iterate。
@@ -194,7 +204,7 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       }))
       .sort((a, b) => b.valueJpy - a.valueJpy);
 
-    return { capturedDate: latest.capturedDate, totalJpy, tags, bigGroups, assets };
+    return { capturedDate: headerLatest, totalJpy, tags, bigGroups, assets };
   });
 
   // タグ作成 (parentId 指定で小カテゴリ)

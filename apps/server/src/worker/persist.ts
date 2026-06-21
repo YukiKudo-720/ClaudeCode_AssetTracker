@@ -1,6 +1,6 @@
 import type { AccountUpdate, AdapterContext } from '../adapters/types.js';
 import { INSTITUTION_KIND } from '@asset-tracker/shared';
-import { toJstDateString } from '../lib/date.js';
+import { toJstDateString, toMarketDateString } from '../lib/date.js';
 
 // AdapterResult を Prisma へ反映する共通ロジック。
 //
@@ -38,6 +38,7 @@ export async function persistAccountUpdate(
     marketValueNative: number;
     marketValueJpy: number;
     avgCostNative?: number;
+    region: string | null;
   };
 
   const resolved: ResolvedHolding[] = [];
@@ -126,6 +127,7 @@ export async function persistAccountUpdate(
       marketValueNative,
       marketValueJpy,
       ...(h.avgCostNative !== undefined ? { avgCostNative: h.avgCostNative } : {}),
+      region: security.region,
     });
   }
 
@@ -166,13 +168,16 @@ export async function persistAccountUpdate(
     },
   });
 
-  // 4. HoldingSnapshot を各 holding ごとに upsert ((holdingId, capturedDate))
+  // 4. HoldingSnapshot を各 holding ごとに upsert ((holdingId, marketDate))
+  //    marketDate は銘柄の region から計算 (米株 = JST - 6h、それ以外 = JST)。
   //    今 update に含まれない過去の Holding の Snapshot には触らない (履歴保持)
   for (const r of resolved) {
+    const marketDate = toMarketDateString(update.capturedAt, r.region);
     await prisma.holdingSnapshot.upsert({
-      where: { holdingId_capturedDate: { holdingId: r.holdingId, capturedDate } },
+      where: { holdingId_marketDate: { holdingId: r.holdingId, marketDate } },
       update: {
         snapshotId: snapshot.id,
+        capturedDate,
         quantity: r.quantity,
         marketPriceNative: r.marketPriceNative,
         marketPriceJpy: r.marketPriceJpy,
@@ -184,6 +189,7 @@ export async function persistAccountUpdate(
         snapshotId: snapshot.id,
         holdingId: r.holdingId,
         capturedDate,
+        marketDate,
         quantity: r.quantity,
         marketPriceNative: r.marketPriceNative,
         marketPriceJpy: r.marketPriceJpy,

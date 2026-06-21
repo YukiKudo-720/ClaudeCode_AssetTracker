@@ -30,19 +30,6 @@ export function registerRankingRoutes(app: FastifyInstance): void {
     }
     const { sortBy, dir, accountId, assetClass } = parsed.data;
 
-    const latest = await prisma.holdingSnapshot.findFirst({
-      orderBy: { capturedDate: 'desc' },
-      select: { capturedDate: true },
-    });
-    if (!latest) {
-      return { capturedDate: null, prevCapturedDate: null, items: [] };
-    }
-    const prev = await prisma.holdingSnapshot.findFirst({
-      where: { capturedDate: { lt: latest.capturedDate } },
-      orderBy: { capturedDate: 'desc' },
-      select: { capturedDate: true },
-    });
-
     // 注: HoldingSnapshot の where では holding が 1 つの object なので、
     // accountId と assetClass を同時に絞るには holding 内でマージする必要がある。
     const holdingWhere: { accountId?: string; security?: { assetClass: string } } = {};
@@ -50,29 +37,39 @@ export function registerRankingRoutes(app: FastifyInstance): void {
     if (assetClass) holdingWhere.security = { assetClass };
     const where = Object.keys(holdingWhere).length > 0 ? { holding: holdingWhere } : {};
 
-    const [todaySnaps, prevSnaps] = await Promise.all([
-      prisma.holdingSnapshot.findMany({
-        where: { capturedDate: latest.capturedDate, ...where },
-        include: {
-          holding: {
-            include: {
-              security: { include: { categories: { include: { category: true } } } },
-              account: true,
-            },
+    // 直近 14 日のスナップショットを集めて、holdingId ごとに最新 marketDate と前日 marketDate を抽出。
+    // 日本株と米株で「1 日」がずれていても銘柄ごとに独立した前日比が出る。
+    const sinceMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const sinceStr = new Date(sinceMs).toISOString().slice(0, 10);
+    const all = await prisma.holdingSnapshot.findMany({
+      where: { marketDate: { gte: sinceStr }, ...where },
+      include: {
+        holding: {
+          include: {
+            security: { include: { categories: { include: { category: true } } } },
+            account: true,
           },
         },
-      }),
-      prev
-        ? prisma.holdingSnapshot.findMany({
-            where: { capturedDate: prev.capturedDate, ...where },
-            include: {
-              holding: {
-                include: { security: { select: { symbol: true, currency: true } } },
-              },
-            },
-          })
-        : Promise.resolve([]),
-    ]);
+      },
+      orderBy: { marketDate: 'desc' },
+    });
+    if (all.length === 0) {
+      return { capturedDate: null, prevCapturedDate: null, items: [] };
+    }
+    const byHolding = new Map<string, typeof all>();
+    for (const hs of all) {
+      const arr = byHolding.get(hs.holdingId) ?? [];
+      arr.push(hs);
+      byHolding.set(hs.holdingId, arr);
+    }
+    const todaySnaps = [...byHolding.values()].map((arr) => arr[0]!).filter(Boolean);
+    const prevSnaps = [...byHolding.values()]
+      .map((arr) => arr[1])
+      .filter((x): x is NonNullable<typeof x> => x != null);
+    const latestDateSet = new Set(todaySnaps.map((hs) => hs.marketDate));
+    const allDatesDesc = [...latestDateSet].sort().reverse();
+    const headerLatest = allDatesDesc[0] ?? null;
+    const headerPrev = allDatesDesc[1] ?? null;
 
     type Agg = {
       securityId: string;
@@ -153,6 +150,7 @@ export function registerRankingRoutes(app: FastifyInstance): void {
         a.todayPriceNative != null && prevPriceNative != null && prevPriceNative > 0
           ? (a.todayPriceNative - prevPriceNative) / prevPriceNative
           : null;
+      const hasPrev = prevValueJpy > 0;
       return {
         securityId: a.securityId,
         symbol: a.symbol,
@@ -160,7 +158,7 @@ export function registerRankingRoutes(app: FastifyInstance): void {
         currency: a.currency,
         assetClass: a.assetClass,
         totalValueJpy: a.totalValueJpy,
-        prevValueJpy: prev ? prevValueJpy : null,
+        prevValueJpy: hasPrev ? prevValueJpy : null,
         diffJpy,
         diffRatio,
         priceDiffRatio,
@@ -187,8 +185,8 @@ export function registerRankingRoutes(app: FastifyInstance): void {
     if (dir === 'desc') items.reverse();
 
     return {
-      capturedDate: latest.capturedDate,
-      prevCapturedDate: prev?.capturedDate ?? null,
+      capturedDate: headerLatest,
+      prevCapturedDate: headerPrev,
       items,
     };
   });

@@ -72,10 +72,21 @@ crontab -e
 例:
 
 ```
-0  7  * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
-0  18 * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
+# 夜メイン: 22:00 (日本投信基準価額確定後)
+0  22 * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
+# 朝メイン: 8:30 (米株 ET 16:00 終値取込)
+30 8  * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
+# SBI リトライ判定: 30 分毎
 */30 * * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh sbi-retry-check >>~/asset-tracker-logs/cron.log 2>&1
 ```
+
+スケジュール根拠:
+- **22:00 夜メイン**: 日本株/ETF/REIT/投信 が当日終値で確定済。米株は ET 当日扱い
+  (場中値だが日本株データの取り込みが主目的)。
+- **8:30 朝メイン**: 米株 ET 16:00 終値 (= ET 前日) を取り込む。日本株は前日終値値で
+  上書きされる (= 同じ値)。
+- 市場別 marketDate (日本株=JST 9h、米株=ET) により、いつ取り込まれても銘柄ごとに
+  正しい「市場の 1 日」として記録される。
 
 挙動:
 - `main` → 既存 state を破棄 → WoL → MfOrchestrateMain Task 発火 → 完了後 SBI 状態確認 → 未完了なら state.json 作成

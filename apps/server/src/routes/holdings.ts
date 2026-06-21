@@ -1,53 +1,33 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
 
-// 銘柄 (Security) 単位で全口座を跨いで集約。最新の capturedDate を採用。
-// prev 比較用に、最新より前の最新 capturedDate も別途取得して per-security 集計。
+// 銘柄 (Security) 単位で全口座を跨いで集約。
+// 各 holding ごとに最新 marketDate (= 銘柄ごとの「市場の今日」) と前日 marketDate の値を使う。
+// 日本株は JST 24:00 区切り、米株は JST 06:00 区切りなので、
+// 日本株と米株で最新 marketDate がずれることがある (それぞれ独立した「1 日」で正常)。
+//
+// 表示用の capturedDate / prevCapturedDate は全 holding 最新 marketDate の最大値 / 次最大値を返す。
 export function registerHoldingsRoutes(app: FastifyInstance): void {
   app.get('/api/holdings', async () => {
-    const latest = await prisma.holdingSnapshot.findFirst({
-      orderBy: { capturedDate: 'desc' },
-      select: { capturedDate: true },
+    // 直近 14 日に絞って holding ごとの latest/prev を抽出。集計対象なら十分なマージン。
+    const sinceMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const sinceStr = new Date(sinceMs).toISOString().slice(0, 10);
+
+    const all = await prisma.holdingSnapshot.findMany({
+      where: { marketDate: { gte: sinceStr } },
+      include: { holding: { include: { security: true, account: true } } },
+      orderBy: { marketDate: 'desc' },
     });
-    if (!latest) {
+    if (all.length === 0) {
       return { capturedDate: null, prevCapturedDate: null, holdings: [] };
     }
 
-    // 直前の日 (= 最新 capturedDate より strictly 前で最も新しい日)
-    const prev = await prisma.holdingSnapshot.findFirst({
-      where: { capturedDate: { lt: latest.capturedDate } },
-      orderBy: { capturedDate: 'desc' },
-      select: { capturedDate: true },
-    });
-
-    const snapshots = await prisma.holdingSnapshot.findMany({
-      where: { capturedDate: latest.capturedDate },
-      include: {
-        holding: {
-          include: { security: true, account: true },
-        },
-      },
-    });
-
-    // 前日 snapshot を (symbol, currency) -> sum(marketValueJpy) でマップ化。
-    // securityId ではなく (symbol, currency) を key にするのは、adapter ごとの exchange 表記差で
-    // Security が割れて 2 行になる事故 (e.g. MVLL が SBI/MF=null, Webull='NASDAQ') を吸収するため。
-    const prevValueBySymCur = new Map<string, number>();
-    if (prev) {
-      const prevSnapshots = await prisma.holdingSnapshot.findMany({
-        where: { capturedDate: prev.capturedDate },
-        include: {
-          holding: {
-            include: { security: { select: { symbol: true, currency: true } } },
-          },
-        },
-      });
-      for (const ps of prevSnapshots) {
-        const sec = ps.holding.security;
-        const key = `${sec.symbol}|${sec.currency}`;
-        const v = Number(ps.marketValueJpy);
-        prevValueBySymCur.set(key, (prevValueBySymCur.get(key) ?? 0) + v);
-      }
+    // holdingId ごとに [latest, prev, ...] (marketDate 降順)
+    const byHolding = new Map<string, typeof all>();
+    for (const hs of all) {
+      const arr = byHolding.get(hs.holdingId) ?? [];
+      arr.push(hs);
+      byHolding.set(hs.holdingId, arr);
     }
 
     type Acc = {
@@ -73,15 +53,36 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       accounts: Acc[];
     };
 
-    // canonical (= 最古) を先に確定させるため Security.createdAt 昇順でソート。
-    // 後続イテレーションで最初に登録された Security のメタデータが採用される。
-    snapshots.sort(
-      (x, y) =>
-        x.holding.security.createdAt.getTime() - y.holding.security.createdAt.getTime(),
-    );
+    // 全 holding の最新分を Security.createdAt 昇順で並べる (canonical 確定のため)
+    const latestList = [...byHolding.values()]
+      .map((arr) => arr[0]!)
+      .filter(Boolean)
+      .sort(
+        (x, y) =>
+          x.holding.security.createdAt.getTime() - y.holding.security.createdAt.getTime(),
+      );
+
+    // 表示用日付: 全 holding 最新 marketDate の最大 / 次最大
+    const latestDateSet = new Set(latestList.map((hs) => hs.marketDate));
+    const allDatesDesc = [...latestDateSet].sort().reverse();
+    const headerLatest = allDatesDesc[0] ?? null;
+    const headerPrev = allDatesDesc[1] ?? null;
+
+    // 前日値マップ (symbol, currency) → sum(marketValueJpy)
+    const prevValueBySymCur = new Map<string, number>();
+    for (const arr of byHolding.values()) {
+      const prev = arr[1];
+      if (!prev) continue;
+      const s = prev.holding.security;
+      const key = `${s.symbol}|${s.currency}`;
+      prevValueBySymCur.set(
+        key,
+        (prevValueBySymCur.get(key) ?? 0) + Number(prev.marketValueJpy),
+      );
+    }
 
     const map = new Map<string, Agg>();
-    for (const hs of snapshots) {
+    for (const hs of latestList) {
       const s = hs.holding.security;
       const a = hs.holding.account;
       const qty = Number(hs.quantity);
@@ -123,9 +124,6 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       });
     }
 
-    // cash は adapter 側で Holdings (assetClass='cash') として emit 済みなので、
-    // ここで synthetic 追加する必要は無い
-
     const holdings = Array.from(map.values())
       .map((h) => ({
         ...h,
@@ -137,8 +135,8 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       .sort((a, b) => b.totalValueJpy - a.totalValueJpy);
 
     return {
-      capturedDate: latest.capturedDate,
-      prevCapturedDate: prev?.capturedDate ?? null,
+      capturedDate: headerLatest,
+      prevCapturedDate: headerPrev,
       holdings,
     };
   });
