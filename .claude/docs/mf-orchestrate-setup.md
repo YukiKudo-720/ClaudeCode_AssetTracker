@@ -44,14 +44,14 @@ PowerShell 管理者で:
 ```powershell
 $ScriptPath = 'C:\Users\guilt\Projects\ClaudeCode_AssetTracker\scripts\orchestrate-and-suspend.ps1'
 
-$ActionA = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-ExecutionPolicy Bypass -File `"$ScriptPath`" -Phase A -SuspendAfter"
-Register-ScheduledTask -TaskName 'MfOrchestrateA' -Action $ActionA `
+$ActionMain = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument "-ExecutionPolicy Bypass -File `"$ScriptPath`" -Phase main -SuspendAfter"
+Register-ScheduledTask -TaskName 'MfOrchestrateMain' -Action $ActionMain `
     -User $env:USERNAME -RunLevel Highest -Force
 
-$ActionB = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-ExecutionPolicy Bypass -File `"$ScriptPath`" -Phase B-step -SuspendAfter"
-Register-ScheduledTask -TaskName 'MfOrchestrateBStep' -Action $ActionB `
+$ActionRetry = New-ScheduledTaskAction -Execute 'powershell.exe' `
+    -Argument "-ExecutionPolicy Bypass -File `"$ScriptPath`" -Phase sbi-retry -SuspendAfter"
+Register-ScheduledTask -TaskName 'MfOrchestrateSbiRetry' -Action $ActionRetry `
     -User $env:USERNAME -RunLevel Highest -Force
 ```
 
@@ -65,21 +65,21 @@ crontab -e
 例:
 
 ```
-0  7  * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh phase-a >>~/asset-tracker-logs/cron.log 2>&1
-0  18 * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh phase-a >>~/asset-tracker-logs/cron.log 2>&1
-*/30 * * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh phase-b-check >>~/asset-tracker-logs/cron.log 2>&1
+0  7  * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
+0  18 * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main >>~/asset-tracker-logs/cron.log 2>&1
+*/30 * * * * /srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh sbi-retry-check >>~/asset-tracker-logs/cron.log 2>&1
 ```
 
 挙動:
-- `phase-a` → 既存 state を破棄 → WoL → MfOrchestrateA Task 発火 → 完了後 SBI 状態確認 → 未完了なら state.json 作成
-- `phase-b-check` (30 分毎) → state.json なし → no-op / 3 時間超え → state 破棄 /
-  最終チェックから 30 分未満 → no-op / それ以外 → WoL → MfOrchestrateBStep Task 発火 → 結果見て state 更新 or 破棄
+- `main` → 既存 state を破棄 → WoL → MfOrchestrateMain Task 発火 → 完了後 SBI 状態確認 → 未完了なら state.json 作成
+- `sbi-retry-check` (30 分毎) → state.json なし → no-op / 3 時間超え → state 破棄 /
+  最終チェックから 30 分未満 → no-op / それ以外 → WoL → MfOrchestrateSbiRetry Task 発火 → 結果見て state 更新 or 破棄
 
 ## 4. 動作確認
 
 ```bash
 # Pi 側で手動発火
-/srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh phase-a
+/srv/asset-tracker/scripts/pi-mf-orchestrate-controller.sh main
 
 # PC 側ログ
 ssh guilt@100.99.142.112 \
@@ -98,7 +98,7 @@ cat /srv/asset-tracker/data/mf-orchestrate-state.json 2>/dev/null || echo 'state
 
 - `AssetTrackerScrape` (既存 Task): scrape:all + mf:push-webull だけ。MF の一括更新は
   しない。Webull 値の MF push を分離して走らせたい場合に使用。
-- `MfOrchestrateA` / `MfOrchestrateBStep` (新 Task): MF の一括更新 + 完了確認 +
+- `MfOrchestrateMain` / `MfOrchestrateSbiRetry` (新 Task): MF の一括更新 + 完了確認 +
   scrape:all を一連で行う。
 
 Pi cron は MfOrchestrate 系をメインに据え、AssetTrackerScrape は補助として併用可能。

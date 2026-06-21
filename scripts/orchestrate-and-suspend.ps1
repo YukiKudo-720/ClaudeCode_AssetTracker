@@ -2,20 +2,20 @@
 # 既存 scrape-and-suspend.ps1 と同じ Junction 回避 + UTF-8 出力 + suspend 機能を踏襲。
 #
 # 引数:
-#   -Phase A|B-check     どのフェーズかを mf-orchestrate に渡す
-#   -SuspendAfter        完了後に PC を sleep に戻す
+#   -Phase main|sbi-retry  どのフェーズかを mf-orchestrate に渡す
+#   -SuspendAfter          完了後に PC を sleep に戻す
 #
 # 想定 Task:
-#   MfOrchestrateA       -Phase A -SuspendAfter   (Pi cron が WoL→発火)
-#   MfOrchestrateBStep   -Phase B-step -SuspendAfter
+#   MfOrchestrateMain      -Phase main -SuspendAfter      (Pi cron が WoL→発火)
+#   MfOrchestrateSbiRetry  -Phase sbi-retry -SuspendAfter
 #
 # Pi cron が「PC は元々起きていた」と判断したケースでは、suspend させたくないので
 # Task 側で SuspendAfter 無しの別 Task を用意するか、Pi から渡された引数で切替する。
 # 当面は SuspendAfter ありで運用 (= Pi が起こしたケースのみ Task 発火する想定)。
 
 param(
-    [ValidateSet('A', 'B-step')]
-    [string]$Phase = 'A',
+    [ValidateSet('main', 'sbi-retry')]
+    [string]$Phase = 'main',
     [switch]$SuspendAfter
 )
 

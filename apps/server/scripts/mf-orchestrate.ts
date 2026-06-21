@@ -6,10 +6,10 @@
 //   で行い、状態は Pi 上の data/mf-orchestrate-state.json に保持する。
 //
 // 引数:
-//   --phase=A         メインサイクル: bulk-update → 5min → poll (SBI除く全完了
-//                     まで 1 分毎) → scrape:all → 状態を Pi に POST → 終了
-//   --phase=B-step    SBI リトライ 1 ステップ: SBI 個別更新 → 5min → check →
-//                     完了なら scrape:all → 状態を Pi に POST → 終了
+//   --phase=main        メインサイクル: bulk-update → 5min → poll (SBI除く全完了
+//                       まで 1 分毎) → scrape:all → 状態を Pi に POST → 終了
+//   --phase=sbi-retry   SBI リトライ 1 ステップ: SBI 個別更新 → 5min → check →
+//                       完了なら scrape:all → 状態を Pi に POST → 終了
 //
 // 状態送信: 各 mf:check-status の結果を Pi の POST /api/mf-status へ送信。
 //           Pi は受信した accounts から SBI 系の inProgress を判定して state を更新する。
@@ -128,8 +128,8 @@ function nonSbiStillInProgress(result: CheckStatusResult): boolean {
   return result.inProgress.some((n) => !SBI_INSTITUTIONS.includes(n));
 }
 
-async function phaseA(): Promise<void> {
-  log('=== phase A 開始 ===');
+async function phaseMain(): Promise<void> {
+  log('=== phase main 開始 ===');
 
   log('mf-bulk-update を実行');
   const bulk = await runScript('mf-bulk-update.ts', ['--headless']);
@@ -144,7 +144,7 @@ async function phaseA(): Promise<void> {
   const pollStart = Date.now();
   while (true) {
     const status = await checkStatus();
-    await postStatusToPi(status, 'A');
+    await postStatusToPi(status, 'main');
     if (!nonSbiStillInProgress(status)) {
       log('SBI 系除く全口座が完了。scrape:all へ移行');
       break;
@@ -168,12 +168,12 @@ async function phaseA(): Promise<void> {
 
   // 最終状態を Pi に POST。SBI 系の inProgress を見て Pi が state を作るか判断する。
   const final = await checkStatus();
-  await postStatusToPi(final, 'A');
-  log('=== phase A 終了 ===');
+  await postStatusToPi(final, 'main');
+  log('=== phase main 終了 ===');
 }
 
-async function phaseBStep(): Promise<void> {
-  log('=== phase B step 開始 ===');
+async function phaseSbiRetry(): Promise<void> {
+  log('=== phase sbi-retry 開始 ===');
   log('SBI 系の個別更新を実行');
   for (const inst of SBI_INSTITUTIONS) {
     const r = await runScript('mf-update-sbi.ts', ['--headless', `--institution=${inst}`]);
@@ -186,28 +186,28 @@ async function phaseBStep(): Promise<void> {
   await sleep(PHASE_B_POST_UPDATE_WAIT_MS);
 
   const status = await checkStatus();
-  await postStatusToPi(status, 'B');
+  await postStatusToPi(status, 'sbi-retry');
   if (!sbiStillInProgress(status)) {
     log('SBI 系完了。scrape:all 実行');
     await runScript('scrape-all.ts');
     const final = await checkStatus();
-    await postStatusToPi(final, 'B');
+    await postStatusToPi(final, 'sbi-retry');
   } else {
-    log('SBI 系まだ更新中。次回 B-step は Pi のスケジューラが判断する');
+    log('SBI 系まだ更新中。次回 sbi-retry は Pi のスケジューラが判断する');
   }
-  log('=== phase B step 終了 ===');
+  log('=== phase sbi-retry 終了 ===');
 }
 
 async function main(): Promise<void> {
   const phaseArg = process.argv.find((a) => a.startsWith('--phase='));
-  const phase = phaseArg?.split('=')[1] ?? 'A';
+  const phase = phaseArg?.split('=')[1] ?? 'main';
 
-  if (phase === 'A') {
-    await phaseA();
-  } else if (phase === 'B-step') {
-    await phaseBStep();
+  if (phase === 'main') {
+    await phaseMain();
+  } else if (phase === 'sbi-retry') {
+    await phaseSbiRetry();
   } else {
-    throw new Error(`未知の phase: ${phase} (A | B-step)`);
+    throw new Error(`未知の phase: ${phase} (main | sbi-retry)`);
   }
 }
 

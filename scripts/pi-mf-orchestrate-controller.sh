@@ -6,8 +6,8 @@
 #   - PC は「単発操作」だけを担当 (phase=A or phase=B-step)
 #
 # 使い方:
-#   pi-mf-orchestrate-controller.sh phase-a        # メインサイクル発火 (Pi cron で 1 日 N 回)
-#   pi-mf-orchestrate-controller.sh phase-b-check  # SBI リトライ判定 (Pi cron で 30 分毎)
+#   pi-mf-orchestrate-controller.sh main             # メインサイクル発火 (Pi cron で 1 日 N 回)
+#   pi-mf-orchestrate-controller.sh sbi-retry-check  # SBI リトライ判定 (Pi cron で 30 分毎)
 #
 # 状態ファイル: data/mf-orchestrate-state.json
 #   { startedAt: ISO, lastCheckedAt: ISO, attempts: number }
@@ -23,7 +23,7 @@ set -euo pipefail
 
 PHASE_CMD="${1:-}"
 if [ -z "$PHASE_CMD" ]; then
-  echo "usage: $0 phase-a|phase-b-check" >&2
+  echo "usage: $0 main|sbi-retry-check" >&2
   exit 1
 fi
 
@@ -108,14 +108,14 @@ fetch_mf_status_sbi_in_progress() {
   return 1
 }
 
-phase_a_handler() {
+main_handler() {
   log "既存 state を破棄"
   rm -f "$STATE_FILE"
 
   wake_pc_if_needed
-  run_pc_task 'MfOrchestrateA'
+  run_pc_task 'MfOrchestrateMain'
 
-  log "Task A 完了想定。SBI 系状態を確認"
+  log "Task Main 完了想定。SBI 系状態を確認"
   # フェーズ A は内部で MF を更新→scrape:all→POST mf-status まで行う。最終 POST が
   # 反映されるまで少し待つ (= PC 内処理がここで終わっていない可能性もあるため、
   # 十分な完了マージンを取りたければ phase-b-check 側で再確認すれば良い)
@@ -135,9 +135,9 @@ EOF
   fi
 }
 
-phase_b_check_handler() {
+sbi_retry_check_handler() {
   if [ ! -f "$STATE_FILE" ]; then
-    log "state 無し。フェーズ B 不要 (= 前回 A で SBI 含め完了)"
+    log "state 無し。SBI リトライ不要 (= 前回 main で SBI 含め完了)"
     exit 0
   fi
 
@@ -168,7 +168,7 @@ phase_b_check_handler() {
   fi
 
   wake_pc_if_needed
-  run_pc_task 'MfOrchestrateBStep'
+  run_pc_task 'MfOrchestrateSbiRetry'
 
   sleep 5
   if fetch_mf_status_sbi_in_progress; then
@@ -188,14 +188,14 @@ EOF
 }
 
 case "$PHASE_CMD" in
-  phase-a)
-    phase_a_handler
+  main)
+    main_handler
     ;;
-  phase-b-check)
-    phase_b_check_handler
+  sbi-retry-check)
+    sbi_retry_check_handler
     ;;
   *)
-    echo "unknown phase: $PHASE_CMD" >&2
+    echo "unknown phase: $PHASE_CMD (main | sbi-retry-check)" >&2
     exit 1
     ;;
 esac
