@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useEffect } from 'react';
-import { LayoutDashboard, Wallet, TrendingUp, Tags, GraduationCap, History as HistoryIcon, Trophy, Settings as SettingsIcon, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Wallet, TrendingUp, Tags, GraduationCap, History as HistoryIcon, Trophy, Settings as SettingsIcon, ChevronRight } from 'lucide-react';
 import { SyncIndicator } from './SyncIndicator.js';
 import { ConnectionErrorOverlay } from './ConnectionErrorOverlay.js';
 
@@ -65,20 +65,45 @@ export function Layout() {
 
       </div>
 
-      {/* スマホ: 画面下からスライドアップするボトムシート風メニュー。
-          translate で常時 DOM に居つつ表示状態を切替 (transition で滑らかに)。
-          ヘッダー固定領域とは独立した z-40 のオーバーレイ。 */}
+      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6">
+        <Outlet />
+      </main>
+
+      {/* スマホ: 左下に Pull tab (縦長 1cm) を常時表示。タップでサイドドロワー
+          が左から右にスライドアウト。タブの ChevronRight が開閉で 180° 回転。 */}
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
+        className={`md:hidden fixed bottom-24 z-50 w-7 h-12 bg-[var(--color-primary)] text-white rounded-r-lg shadow-lg flex items-center justify-center active:scale-95 transition-all duration-300 ${
+          menuOpen ? 'left-64' : 'left-0'
+        }`}
+      >
+        <ChevronRight
+          size={18}
+          className={`transition-transform duration-300 ${menuOpen ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {/* スマホ: 左サイドドロワー。translate-x で開閉。背後タップで閉じるバック
+          ドロップ付き。 */}
+      {menuOpen && (
+        <div
+          onClick={() => setMenuOpen(false)}
+          className="md:hidden fixed inset-0 z-30 bg-black/30"
+          aria-hidden
+        />
+      )}
       <nav
-        className={`md:hidden fixed inset-x-0 bottom-0 z-40 bg-[var(--color-primary-soft)] text-white rounded-t-2xl shadow-2xl border-t border-white/10 transition-transform duration-300 ease-out ${
-          menuOpen ? 'translate-y-0' : 'translate-y-full'
+        className={`md:hidden fixed left-0 top-0 bottom-0 z-40 w-64 bg-[var(--color-primary-soft)] text-white shadow-2xl transition-transform duration-300 ease-out ${
+          menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         aria-hidden={!menuOpen}
       >
-        {/* ボトムシートの慣習: 上端に握り表示 (装飾のみ、ドラッグ不可) */}
-        <div className="flex justify-center pt-2 pb-1">
-          <div className="w-10 h-1 rounded-full bg-white/30" />
+        <div className="px-4 py-3 border-b border-white/10 font-semibold text-sm">
+          メニュー
         </div>
-        <div className="max-w-5xl mx-auto flex flex-col max-h-[70vh] overflow-y-auto pb-4">
+        <div className="flex flex-col overflow-y-auto h-[calc(100%-3rem)] pb-4">
           {NAV.map(({ to, label, icon: Icon, end }) => (
             <NavLink
               key={to}
@@ -97,24 +122,6 @@ export function Layout() {
           ))}
         </div>
       </nav>
-
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6">
-        <Outlet />
-      </main>
-
-      {/* スマホのみ: 画面右下に半透明 FAB のハンバーガーボタン。
-          Tailwind v4 では @theme で定義した色を使うときは `bg-primary/40` のように
-          短い形で書く必要がある。`bg-[var(--color-primary)]/40` 形式は opacity が
-          効かない (色だけそのまま、alpha は無視される) のでハマりやすい。
-          backdrop-blur-md は背景に blur をかけて「透けてる」感を強める。 */}
-      <button
-        type="button"
-        onClick={() => setMenuOpen((v) => !v)}
-        aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
-        className="md:hidden fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-primary/40 backdrop-blur-md shadow-lg flex items-center justify-center text-white active:scale-95 transition"
-      >
-        {menuOpen ? <X size={22} /> : <Menu size={22} />}
-      </button>
 
       <ConnectionErrorOverlay />
     </div>
