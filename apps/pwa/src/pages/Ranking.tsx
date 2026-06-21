@@ -38,6 +38,12 @@ function formatSignedPct(ratio: number): string {
   return `${sign}${(Math.abs(ratio) * 100).toFixed(2)}%`;
 }
 
+// 行内表示用: ヘッダーに「%」が既に書いてあるので末尾の % を省略
+function formatSignedPctBare(ratio: number): string {
+  const sign = ratio > 0 ? '+' : ratio < 0 ? '−' : '±';
+  return `${sign}${(Math.abs(ratio) * 100).toFixed(2)}`;
+}
+
 function tone(n: number): string {
   if (n > 0) return 'text-[var(--color-positive)]';
   if (n < 0) return 'text-[var(--color-negative)]';
@@ -87,20 +93,20 @@ function Row({ item, rank, sortBy }: { item: RankingItem; rank: number; sortBy: 
       <td
         className={`py-2 pr-2 text-right tabular-nums whitespace-nowrap md:hidden ${tone(mobileRatio ?? 0)}`}
       >
-        {mobileRatio != null ? formatSignedPct(mobileRatio) : '—'}
+        {mobileRatio != null ? formatSignedPctBare(mobileRatio) : '—'}
       </td>
 
       {/* PC: 評価% と 単価% の 2 列 */}
       <td
         className={`hidden md:table-cell py-2 pr-2 text-right tabular-nums whitespace-nowrap ${sortBy === 'ratio' ? 'font-semibold' : ''} ${tone(item.diffRatio ?? 0)}`}
       >
-        {item.diffRatio != null ? formatSignedPct(item.diffRatio) : '—'}
+        {item.diffRatio != null ? formatSignedPctBare(item.diffRatio) : '—'}
       </td>
       <td
         className={`hidden md:table-cell py-2 pr-2 text-right tabular-nums whitespace-nowrap ${sortBy === 'price_ratio' ? 'font-semibold' : ''} ${tone(item.priceDiffRatio ?? 0)}`}
         title="単価ベース騰落率 (株数変動の影響を除く)"
       >
-        {item.priceDiffRatio != null ? formatSignedPct(item.priceDiffRatio) : '—'}
+        {item.priceDiffRatio != null ? formatSignedPctBare(item.priceDiffRatio) : '—'}
       </td>
       <td className="py-2 pr-2 text-xs text-[var(--color-text-muted)] hidden lg:table-cell">
         {item.accounts
