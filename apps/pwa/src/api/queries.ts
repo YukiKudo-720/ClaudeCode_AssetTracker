@@ -206,3 +206,14 @@ export function useWakePc() {
       }),
   });
 }
+
+// Pi 専用: WoL → MF 一括更新 → 待機 → scrape:all までの一連 (orchestrate main)。
+export function useWakePcMf() {
+  return useMutation({
+    mutationFn: () =>
+      apiFetch<{ status: string; startedAt: string }>('/api/wake-pc-mf', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
+  });
+}

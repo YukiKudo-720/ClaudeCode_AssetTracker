@@ -15,7 +15,7 @@ import {
   getToken,
   setToken,
 } from '../api/client.js';
-import { useWakePc, useFxRates, useSyncStatus, useMfStatus } from '../api/queries.js';
+import { useWakePc, useWakePcMf, useFxRates, useSyncStatus, useMfStatus } from '../api/queries.js';
 
 const SOURCE_LABELS: Record<string, string> = {
   moneyforward: 'MoneyForward (MF)',
@@ -305,6 +305,7 @@ export function Settings() {
   const [triggeredAt, setTriggeredAt] = useState<number | null>(null);
   const [tick, setTick] = useState(0);
   const wakePc = useWakePc();
+  const wakePcMf = useWakePcMf();
   const fx = useFxRates();
   const syncStatus = useSyncStatus();
   const mfStatus = useMfStatus();
@@ -351,6 +352,11 @@ export function Settings() {
   function handleWakePc() {
     setTriggeredAt(Date.now());
     wakePc.mutate(undefined);
+  }
+
+  function handleWakePcMf() {
+    setTriggeredAt(Date.now());
+    wakePcMf.mutate(undefined);
   }
 
   function formatElapsed(sec: number): string {
@@ -481,22 +487,35 @@ export function Settings() {
 
       <section>
         <h2 className="text-base font-semibold mb-3">手動同期</h2>
-        <button
-          onClick={handleWakePc}
-          disabled={wakePc.isPending || isRunning}
-          className="px-4 py-2 bg-[var(--color-accent)] text-[var(--color-primary)] rounded font-medium disabled:opacity-50"
-        >
-          {isRunning
-            ? `実行中… ${formatElapsed(elapsedSec)}`
-            : '今すぐスクレイピング (PC を起こす)'}
-        </button>
+        <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
+          <button
+            onClick={handleWakePc}
+            disabled={wakePc.isPending || wakePcMf.isPending || isRunning}
+            className="px-4 py-2 bg-[var(--color-accent)] text-[var(--color-primary)] rounded font-medium disabled:opacity-50"
+          >
+            {isRunning && wakePc.variables !== undefined && !wakePcMf.isPending
+              ? `実行中… ${formatElapsed(elapsedSec)}`
+              : '今すぐスクレイピング'}
+          </button>
+          <button
+            onClick={handleWakePcMf}
+            disabled={wakePc.isPending || wakePcMf.isPending || isRunning}
+            className="px-4 py-2 bg-[var(--color-primary)] text-white rounded font-medium disabled:opacity-50"
+          >
+            {isRunning && wakePcMf.variables !== undefined
+              ? `MF 更新+取得 実行中… ${formatElapsed(elapsedSec)}`
+              : 'MF 一括更新も含めて実行'}
+          </button>
+        </div>
         <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-          PC を WoL で起こして MF / Webull / moomoo を全件取得します。完了まで 3〜5 分程度。
+          通常モード: PC を起こして MF / Webull / moomoo を取得 (3〜5 分)。<br />
+          MF 更新含む: 先に MF の「一括更新」を発火 → 完了待ち → scrape:all (10 分前後)。SBI 系が
+          MF 側で遅延しがちな場合に使用。
         </p>
 
-        {wakePc.isError && (
+        {(wakePc.isError || wakePcMf.isError) && (
           <p className="mt-2 text-sm text-[var(--color-negative)]">
-            起動失敗: {wakePc.error.message}
+            起動失敗: {(wakePc.error ?? wakePcMf.error)?.message}
           </p>
         )}
 
