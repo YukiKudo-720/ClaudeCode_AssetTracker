@@ -69,24 +69,25 @@ export function Layout() {
         <Outlet />
       </main>
 
-      {/* スマホ: 左下に Pull tab (縦長 1cm) を常時表示。タップでサイドドロワー
-          が左から右にスライドアウト。タブの ChevronRight が開閉で 180° 回転。 */}
+      {/* スマホ: 左下に Pull tab (細め 1cm)。bottom-8 で画面下寄り、w-5 で控えめ。
+          タップでサイドドロワーが下半分に表示される。タブはドロワー右端に追従。 */}
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
         aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
-        className={`md:hidden fixed bottom-24 z-50 w-7 h-12 bg-[var(--color-primary)] text-white rounded-r-lg shadow-lg flex items-center justify-center active:scale-95 transition-all duration-300 ${
+        className={`md:hidden fixed bottom-8 z-50 w-5 h-12 bg-[var(--color-primary)] text-white rounded-r-lg shadow-lg flex items-center justify-center active:scale-95 transition-all duration-300 ${
           menuOpen ? 'left-64' : 'left-0'
         }`}
       >
         <ChevronRight
-          size={18}
+          size={14}
           className={`transition-transform duration-300 ${menuOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
-      {/* スマホ: 左サイドドロワー。translate-x で開閉。背後タップで閉じるバック
-          ドロップ付き。 */}
+      {/* スマホ: 左下サイドドロワー (画面下半分 = 70vh)。translate-x で開閉。
+          背後タップで閉じるバックドロップ付き。上端の右角を丸めて「下から出てる」
+          印象に。 */}
       {menuOpen && (
         <div
           onClick={() => setMenuOpen(false)}
@@ -95,7 +96,7 @@ export function Layout() {
         />
       )}
       <nav
-        className={`md:hidden fixed left-0 top-0 bottom-0 z-40 w-64 bg-[var(--color-primary-soft)] text-white shadow-2xl transition-transform duration-300 ease-out ${
+        className={`md:hidden fixed left-0 bottom-0 h-[70vh] z-40 w-64 bg-[var(--color-primary-soft)] text-white shadow-2xl rounded-tr-2xl transition-transform duration-300 ease-out ${
           menuOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         aria-hidden={!menuOpen}
