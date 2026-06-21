@@ -37,18 +37,7 @@ export function Layout() {
             >
               Asset Tracker
             </Link>
-            <div className="flex items-center gap-3">
-              <SyncIndicator />
-              {/* スマホ: ハンバーガーボタン (md 以上は隠す) */}
-              <button
-                type="button"
-                onClick={() => setMenuOpen((v) => !v)}
-                aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
-                className="md:hidden p-1 -mr-1"
-              >
-                {menuOpen ? <X size={22} /> : <Menu size={22} />}
-              </button>
-            </div>
+            <SyncIndicator />
           </div>
         </header>
 
@@ -102,6 +91,18 @@ export function Layout() {
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 py-6">
         <Outlet />
       </main>
+
+      {/* スマホのみ: 画面右下に半透明 FAB のハンバーガーボタン。
+          片手操作で押しやすい位置に出す。背後の内容が見えるよう 70% 半透明 + blur。
+          メニュー開閉時に X / Menu アイコン切替。 */}
+      <button
+        type="button"
+        onClick={() => setMenuOpen((v) => !v)}
+        aria-label={menuOpen ? 'メニューを閉じる' : 'メニューを開く'}
+        className="md:hidden fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full bg-[var(--color-primary)]/70 backdrop-blur-sm shadow-lg flex items-center justify-center text-white active:scale-95 hover:bg-[var(--color-primary)]/90 transition"
+      >
+        {menuOpen ? <X size={22} /> : <Menu size={22} />}
+      </button>
 
       <ConnectionErrorOverlay />
     </div>
