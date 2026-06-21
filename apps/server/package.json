@@ -21,7 +21,10 @@
     "scrape:all": "tsx scripts/scrape-all.ts",
     "webull:probe": "tsx scripts/webull-probe.ts",
     "webull:run": "tsx scripts/webull-run.ts",
-    "mf:push-webull": "tsx scripts/mf-push-webull.ts"
+    "mf:push-webull": "tsx scripts/mf-push-webull.ts",
+    "mf:bulk-update": "tsx scripts/mf-bulk-update.ts",
+    "mf:check-status": "tsx scripts/mf-check-status.ts",
+    "mf:update-sbi": "tsx scripts/mf-update-sbi.ts"
   },
   "dependencies": {
     "@asset-tracker/shared": "workspace:*",
