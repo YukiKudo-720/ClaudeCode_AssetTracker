@@ -73,7 +73,7 @@ export function useFxRates() {
 }
 
 export function useRanking(params: {
-  sortBy: 'ratio' | 'amount' | 'value';
+  sortBy: 'ratio' | 'price_ratio' | 'amount' | 'value';
   dir: 'asc' | 'desc';
   accountId?: string;
   assetClass?: string;

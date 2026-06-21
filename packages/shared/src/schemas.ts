@@ -341,8 +341,10 @@ export const RankingItemSchema = z.object({
   totalValueJpy: z.number(),
   prevValueJpy: z.number().nullable(),
   diffJpy: z.number(),
-  // 前日値が無い (新規 / カバレッジ外) と null
+  // 評価額ベースの騰落率 (株数変動の影響を含む)。前日値が無い (新規 / カバレッジ外) と null
   diffRatio: z.number().nullable(),
+  // 単価ベースの騰落率 (株数の影響を除いた純粋な株価の動き)
+  priceDiffRatio: z.number().nullable(),
   accounts: z.array(z.object({ institution: z.string(), label: z.string() })),
   categories: z.array(z.object({ id: z.string(), name: z.string() })),
 });

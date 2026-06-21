@@ -21,7 +21,7 @@ const ASSET_CLASS_OPTIONS: AssetClass[] = [
   'other',
 ];
 
-type SortBy = 'ratio' | 'amount' | 'value';
+type SortBy = 'ratio' | 'price_ratio' | 'amount' | 'value';
 type Dir = 'asc' | 'desc';
 
 function formatJpy(n: number): string {
@@ -67,6 +67,12 @@ function Row({ item, rank, sortBy }: { item: RankingItem; rank: number; sortBy: 
       >
         {item.diffRatio != null ? formatSignedPct(item.diffRatio) : '—'}
       </td>
+      <td
+        className={`py-2 pr-2 text-right tabular-nums ${sortBy === 'price_ratio' ? 'font-semibold' : ''} ${tone(item.priceDiffRatio ?? 0)}`}
+        title="単価ベース騰落率 (株数変動の影響を除く)"
+      >
+        {item.priceDiffRatio != null ? formatSignedPct(item.priceDiffRatio) : '—'}
+      </td>
       <td className="py-2 pr-2 text-xs text-[var(--color-text-muted)] hidden lg:table-cell">
         {item.accounts
           .map((a) => INSTITUTION_LABELS[a.institution as Institution] ?? a.institution)
@@ -104,7 +110,8 @@ export function Ranking() {
             {/* セグメントコントロール (連結ボタン)。スマホでは flex-1 で残幅を埋める */}
             <div className="inline-flex flex-1 md:flex-initial rounded-md border border-[var(--color-border)] overflow-hidden">
               {([
-                { key: 'ratio', label: '%' },
+                { key: 'ratio', label: '評価%' },
+                { key: 'price_ratio', label: '単価%' },
                 { key: 'amount', label: '騰落額' },
                 { key: 'value', label: '評価額' },
               ] as const).map(({ key, label }, i) => (
@@ -231,7 +238,8 @@ export function Ranking() {
                 <th className="py-2 pr-2">銘柄</th>
                 <th className="py-2 pr-2 text-right hidden md:table-cell">評価額</th>
                 <th className="py-2 pr-2 text-right">騰落 (¥)</th>
-                <th className="py-2 pr-2 text-right">騰落 (%)</th>
+                <th className="py-2 pr-2 text-right">評価%</th>
+                <th className="py-2 pr-2 text-right">単価%</th>
                 <th className="py-2 pr-2 hidden lg:table-cell">口座</th>
               </tr>
             </thead>

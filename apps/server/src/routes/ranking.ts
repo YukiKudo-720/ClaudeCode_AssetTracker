@@ -12,8 +12,10 @@ import { prisma } from '../db.js';
 // cash は除外 (騰落率の概念が無い)。
 
 const QuerySchema = z.object({
-  // ratio = 騰落率 (%), amount = 騰落額 (¥), value = 評価額 (¥)
-  sortBy: z.enum(['ratio', 'amount', 'value']).default('ratio'),
+  // ratio = 評価額騰落率 (%) [株数変動の影響を含む]
+  // price_ratio = 単価騰落率 (%) [純粋な株価の動き]
+  // amount = 騰落額 (¥), value = 評価額 (¥)
+  sortBy: z.enum(['ratio', 'price_ratio', 'amount', 'value']).default('ratio'),
   dir: z.enum(['asc', 'desc']).default('desc'),
   accountId: z.string().optional(),
   // assetClass フィルタ (stock / etf / mutual_fund / reit / bond / crypto / commodity / fx / other)
@@ -79,6 +81,10 @@ export function registerRankingRoutes(app: FastifyInstance): void {
       currency: string;
       assetClass: string;
       totalValueJpy: number;
+      // (symbol, currency) の代表単価 (= 最初に出会った HoldingSnapshot の値)。
+      // 同銘柄を別口座で持っていても adapter が同じなら同値、別 adapter でも
+      // 通常は同じ price になるので「最初の 1 つ」で十分。
+      todayPriceNative: number | null;
       accounts: Array<{ institution: string; label: string }>;
       categories: Array<{ id: string; name: string }>;
     };
@@ -103,6 +109,7 @@ export function registerRankingRoutes(app: FastifyInstance): void {
           currency: s.currency,
           assetClass: s.assetClass,
           totalValueJpy: 0,
+          todayPriceNative: Number(hs.marketPriceNative),
           accounts: [],
           categories: s.categories.map((c) => ({ id: c.categoryId, name: c.category.name })),
         };
@@ -123,17 +130,29 @@ export function registerRankingRoutes(app: FastifyInstance): void {
     }
 
     // 前日 snapshot を (symbol, currency) → sum(jpy) でマップ化
+    // 同時に (symbol, currency) → 代表単価 もマップ化 (最初に出会った 1 つを採用)
     const prevMap = new Map<string, number>();
+    const prevPriceMap = new Map<string, number>();
     for (const hs of prevSnaps) {
       const s = hs.holding.security;
       const key = `${s.symbol}|${s.currency}`;
       prevMap.set(key, (prevMap.get(key) ?? 0) + Number(hs.marketValueJpy));
+      if (!prevPriceMap.has(key)) {
+        prevPriceMap.set(key, Number(hs.marketPriceNative));
+      }
     }
 
     const items = [...map.values()].map((a) => {
-      const prevValueJpy = prevMap.get(`${a.symbol}|${a.currency}`) ?? 0;
+      const key = `${a.symbol}|${a.currency}`;
+      const prevValueJpy = prevMap.get(key) ?? 0;
       const diffJpy = prevValueJpy > 0 ? a.totalValueJpy - prevValueJpy : 0;
       const diffRatio = prevValueJpy > 0 ? diffJpy / prevValueJpy : null;
+      // 単価ベース騰落率: 株数の影響を除いた純粋な株価の動き
+      const prevPriceNative = prevPriceMap.get(key) ?? null;
+      const priceDiffRatio =
+        a.todayPriceNative != null && prevPriceNative != null && prevPriceNative > 0
+          ? (a.todayPriceNative - prevPriceNative) / prevPriceNative
+          : null;
       return {
         securityId: a.securityId,
         symbol: a.symbol,
@@ -144,6 +163,7 @@ export function registerRankingRoutes(app: FastifyInstance): void {
         prevValueJpy: prev ? prevValueJpy : null,
         diffJpy,
         diffRatio,
+        priceDiffRatio,
         accounts: a.accounts,
         categories: a.categories,
       };
@@ -154,6 +174,11 @@ export function registerRankingRoutes(app: FastifyInstance): void {
         // ratio は null を末尾に寄せる
         const xr = x.diffRatio ?? -Infinity;
         const yr = y.diffRatio ?? -Infinity;
+        return xr - yr;
+      }
+      if (sortBy === 'price_ratio') {
+        const xr = x.priceDiffRatio ?? -Infinity;
+        const yr = y.priceDiffRatio ?? -Infinity;
         return xr - yr;
       }
       if (sortBy === 'value') return x.totalValueJpy - y.totalValueJpy;
