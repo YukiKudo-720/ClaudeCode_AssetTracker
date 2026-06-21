@@ -95,10 +95,15 @@ async function main(): Promise<void> {
       const text = (await row.innerText().catch(() => '')).trim();
       if (!text) continue;
       const lines = text.split('\n').map((s) => s.trim()).filter(Boolean);
-      // 機関名は通常 1 行目 (口座名のリンクテキスト)
       const name = lines[0] ?? '';
-      if (!name || name.length > 50) continue; // ヘッダー行などを除外
-      accounts.push(parseRowText(name, text));
+      // フィルタ:
+      // - 「(本サイト)」を含む行 = MF の自動連携口座のみ対象 (更新の概念がある)
+      // - 手動口座 (「現金保有」「webull証券」など) や表ヘッダー行は除外
+      if (!/本サイト/.test(text)) continue;
+      if (!name || name.length > 80) continue;
+      // 末尾の「(  本サイト )」を機関名から除去して読みやすく
+      const cleanedName = name.replace(/\s*\(\s*本サイト\s*\)\s*$/, '').trim();
+      accounts.push(parseRowText(cleanedName, text));
     }
 
     const inProgress = accounts.filter((a) => a.inProgress).map((a) => a.name);
