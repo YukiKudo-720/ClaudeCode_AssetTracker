@@ -96,6 +96,19 @@ if ($DryRun) {
             $pushExit = 1
         }
     }
+
+    # MF 連携口座の最終取得時刻を Pi に POST。手動実行・自動実行どちらでも、
+    # MF のデータがいつ時点のものかを PWA に反映する目的。
+    try {
+        Write-Log "--- mf:check-status (--post) start ---"
+        $tsxCli = Resolve-TsxCli
+        $scriptAbs = Join-Path $repoRoot 'apps\server\scripts\mf-check-status.ts'
+        & node $tsxCli $scriptAbs '--post' *>> $logFile
+        $statusExit = $LASTEXITCODE
+        Write-Log "--- mf:check-status end exit=$statusExit ---"
+    } catch {
+        Write-Log "mf:check-status EXCEPTION: $($_.Exception.Message)"
+    }
 }
 
 Write-Log "=== scrape-and-suspend end (scrape=$scrapeExit push=$pushExit) ==="

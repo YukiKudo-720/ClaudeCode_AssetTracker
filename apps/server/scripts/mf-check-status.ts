@@ -25,11 +25,14 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { chromium, type Page } from 'playwright';
 import { MF_USER_DATA_DIR, MF_URLS } from '../src/adapters/moneyforward/profile.js';
 import { NeedsLoginError } from '../src/adapters/types.js';
+import { env } from '../src/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DEBUG_DIR = path.resolve(__dirname, '..', '..', '..', 'data', 'mf-debug');
 const HEADLESS = process.argv.includes('--headless');
 const DUMP = process.argv.includes('--dump');
+// --post: 結果を env.SYNC_TARGET の Pi に POST /api/mf-status する
+const POST = process.argv.includes('--post');
 
 // このツールが MF 経由で取得対象としている機関のみを返す (= scraper.ts の
 // INSTITUTION_MAP と同じセット)。MF 上の他の連携 (カード類 / ポイント等) は無視。
@@ -147,6 +150,36 @@ async function main(): Promise<void> {
       accounts,
     };
     console.log(JSON.stringify(result, null, 2));
+
+    if (POST && env.SYNC_TARGET) {
+      try {
+        const res = await fetch(`${env.SYNC_TARGET.replace(/\/$/, '')}/api/mf-status`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${env.ASSET_TRACKER_TOKEN}`,
+          },
+          body: JSON.stringify({
+            phase: 'manual',
+            checkedAt: new Date().toISOString(),
+            accounts: accounts.map((a) => ({
+              name: a.name,
+              inProgress: a.inProgress,
+              error: a.error,
+              errorMessage: a.errorMessage,
+              lastUpdated: a.lastUpdated,
+            })),
+          }),
+        });
+        if (!res.ok) {
+          console.error(`[mf-check-status] POST 失敗 status=${res.status}: ${await res.text().catch(() => '')}`);
+        } else {
+          console.error(`[mf-check-status] POST OK (${accounts.length} accounts → ${env.SYNC_TARGET})`);
+        }
+      } catch (e) {
+        console.error(`[mf-check-status] POST 例外: ${(e as Error).message}`);
+      }
+    }
 
     if (errors.length > 0) process.exitCode = 2;
     else if (!allDone) process.exitCode = 1;
