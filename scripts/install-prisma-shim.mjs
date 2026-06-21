@@ -13,7 +13,7 @@
 // This script runs as a postinstall hook and re-creates the shim after every
 // pnpm install (which would otherwise clean it up).
 
-import { mkdirSync, writeFileSync, existsSync } from 'node:fs';
+import { chmodSync, writeFileSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -31,12 +31,32 @@ const cmdContent = [
   '',
 ].join('\r\n');
 
+const shContent = [
+  '#!/bin/sh',
+  '# No-op shim for Prisma auto-install. See scripts/install-prisma-shim.mjs.',
+  'exit 0',
+  '',
+].join('\n');
+
 for (const dir of targets) {
   if (!existsSync(dir)) {
     console.warn(`[prisma-shim] skipped (no dir): ${dir}`);
     continue;
   }
-  const file = join(dir, 'pnpm.CMD');
-  writeFileSync(file, cmdContent);
-  console.log(`[prisma-shim] installed: ${file}`);
+  // Windows 用 (.CMD) と POSIX 用 (拡張子なし) の両方を作る:
+  // - Windows の Node child_process は PATHEXT で .CMD を解決
+  // - Linux/macOS は拡張子なしの実行可能ファイルを spawn で見つける
+  // 両プラットフォームで pnpm install しても OK なよう常時両方書き込む。
+  const cmdFile = join(dir, 'pnpm.CMD');
+  writeFileSync(cmdFile, cmdContent);
+  console.log(`[prisma-shim] installed: ${cmdFile}`);
+
+  const shFile = join(dir, 'pnpm');
+  writeFileSync(shFile, shContent);
+  try {
+    chmodSync(shFile, 0o755);
+  } catch {
+    // Windows では chmod は意味が無いので無視
+  }
+  console.log(`[prisma-shim] installed: ${shFile}`);
 }
