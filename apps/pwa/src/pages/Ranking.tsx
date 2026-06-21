@@ -118,7 +118,7 @@ export function Ranking() {
                 <button
                   key={key}
                   onClick={() => setSortBy(key)}
-                  className={`flex-1 md:flex-initial px-3 py-1.5 text-sm transition ${
+                  className={`flex-1 md:flex-initial px-1.5 md:px-3 py-1.5 text-xs md:text-sm whitespace-nowrap transition ${
                     i > 0 ? 'border-l border-[var(--color-border)]' : ''
                   } ${
                     sortBy === key

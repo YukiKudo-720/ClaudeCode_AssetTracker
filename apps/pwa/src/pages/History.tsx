@@ -271,6 +271,14 @@ export function History() {
               (s, a) => s + (point[a.key] as number),
               0,
             );
+            // 前日 = points 上で point の 1 つ前。total / 各 assetClass の前日比に使う。
+            const idx = data.points.findIndex((p) => p.date === point.date);
+            const prev = idx > 0 ? data.points[idx - 1]! : null;
+            const prevTotal = prev
+              ? visible.reduce((s, a) => s + (prev[a.key] as number), 0)
+              : null;
+            const totalDiffRatio =
+              prevTotal != null && prevTotal > 0 ? (total - prevTotal) / prevTotal : null;
             // グラフは下から cash, fx, stock, etf, ... の順で積み上がる。
             // 視覚的に対応させるため、リストは上 = 最上層 (投信など) / 下 = 現金 になるよう反転。
             const visibleTopDown = [...visible].reverse();
@@ -280,28 +288,63 @@ export function History() {
                   <span className="text-sm font-medium">
                     {hoverPoint ? point.date : `最新 (${point.date})`}
                   </span>
-                  <span className="text-base font-semibold tabular-nums">
-                    総額 {formatJpy(total)}
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="text-base font-semibold tabular-nums">
+                      総額 {formatJpy(total)}
+                    </span>
+                    {totalDiffRatio != null && (
+                      <span
+                        className={`text-xs tabular-nums ${
+                          totalDiffRatio > 0
+                            ? 'text-[var(--color-positive)]'
+                            : totalDiffRatio < 0
+                              ? 'text-[var(--color-negative)]'
+                              : 'text-[var(--color-text-muted)]'
+                        }`}
+                      >
+                        ({totalDiffRatio >= 0 ? '+' : '−'}
+                        {(Math.abs(totalDiffRatio) * 100).toFixed(2)}%)
+                      </span>
+                    )}
                   </span>
                 </div>
                 <div className="flex flex-col gap-1 text-sm">
-                  {visibleTopDown.map((a) => (
-                    <div
-                      key={a.key as string}
-                      className="flex items-baseline justify-between gap-3"
-                    >
-                      <span className="flex items-baseline gap-2">
-                        <span
-                          className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
-                          style={{ background: a.color }}
-                        />
-                        <span className="text-[var(--color-text-muted)]">{a.label}</span>
-                      </span>
-                      <span className="tabular-nums">
-                        {formatJpy(point[a.key] as number)}
-                      </span>
-                    </div>
-                  ))}
+                  {visibleTopDown.map((a) => {
+                    const v = point[a.key] as number;
+                    const pv = prev ? (prev[a.key] as number) : null;
+                    const ratio = pv != null && pv > 0 ? (v - pv) / pv : null;
+                    return (
+                      <div
+                        key={a.key as string}
+                        className="flex items-baseline justify-between gap-3"
+                      >
+                        <span className="flex items-baseline gap-2">
+                          <span
+                            className="inline-block w-3 h-3 rounded-sm flex-shrink-0"
+                            style={{ background: a.color }}
+                          />
+                          <span className="text-[var(--color-text-muted)]">{a.label}</span>
+                        </span>
+                        <span className="flex items-baseline gap-1.5">
+                          <span className="tabular-nums">{formatJpy(v)}</span>
+                          {ratio != null && (
+                            <span
+                              className={`text-xs tabular-nums ${
+                                ratio > 0
+                                  ? 'text-[var(--color-positive)]'
+                                  : ratio < 0
+                                    ? 'text-[var(--color-negative)]'
+                                    : 'text-[var(--color-text-muted)]'
+                              }`}
+                            >
+                              {ratio >= 0 ? '+' : '−'}
+                              {(Math.abs(ratio) * 100).toFixed(2)}%
+                            </span>
+                          )}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               </>
             );
