@@ -103,7 +103,7 @@ async function runScript(
 }
 
 async function checkStatus(): Promise<CheckStatusResult> {
-  const r = await runScript('mf-check-status.ts', ['--headless']);
+  const r = await runScript('mf-check-status.ts');
   if (r.exit > 2) throw new Error(`mf-check-status 失敗 exit=${r.exit}: ${r.stderr}`);
   const m = r.stdout.match(/\{[\s\S]*\}/);
   if (!m) throw new Error(`check-status の出力に JSON が含まれません: ${r.stdout}`);
@@ -149,7 +149,7 @@ async function phaseMain(): Promise<void> {
   log('=== phase main 開始 ===');
 
   log('mf-bulk-update を実行');
-  const bulk = await runScript('mf-bulk-update.ts', ['--headless']);
+  const bulk = await runScript('mf-bulk-update.ts');
   if (bulk.exit !== 0) {
     log(`mf-bulk-update 失敗 exit=${bulk.exit} stderr=${bulk.stderr.slice(0, 300)}`);
     throw new Error('bulk-update failed');
@@ -193,7 +193,7 @@ async function phaseSbiRetry(): Promise<void> {
   log('=== phase sbi-retry 開始 ===');
   log('SBI 系の個別更新を実行');
   for (const inst of SBI_INSTITUTIONS) {
-    const r = await runScript('mf-update-sbi.ts', ['--headless', `--institution=${inst}`]);
+    const r = await runScript('mf-update-sbi.ts', [`--institution=${inst}`]);
     if (r.exit !== 0) {
       log(`${inst} の個別更新失敗 exit=${r.exit}: ${r.stderr.slice(0, 200)}`);
     }
