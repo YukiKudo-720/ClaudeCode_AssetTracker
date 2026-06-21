@@ -86,12 +86,14 @@ export function useRanking(params: {
   dir: 'asc' | 'desc';
   accountId?: string;
   assetClass?: string;
+  date?: string; // YYYY-MM-DD。未指定なら最新 marketDate
 }) {
   const q = new URLSearchParams();
   q.set('sortBy', params.sortBy);
   q.set('dir', params.dir);
   if (params.accountId) q.set('accountId', params.accountId);
   if (params.assetClass) q.set('assetClass', params.assetClass);
+  if (params.date) q.set('date', params.date);
   const qs = q.toString();
   return useQuery({
     queryKey: ['ranking', params],

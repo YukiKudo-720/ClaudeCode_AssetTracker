@@ -20,6 +20,12 @@ const QuerySchema = z.object({
   accountId: z.string().optional(),
   // assetClass フィルタ (stock / etf / mutual_fund / reit / bond / crypto / commodity / fx / other)
   assetClass: z.string().optional(),
+  // 比較基準日 (YYYY-MM-DD)。未指定 = 各 holding の最新 marketDate。
+  // 指定時はその日以前で最新のスナップショットを「当日」とし、それより前を「前日」として比較。
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 });
 
 export function registerRankingRoutes(app: FastifyInstance): void {
@@ -28,7 +34,7 @@ export function registerRankingRoutes(app: FastifyInstance): void {
     if (!parsed.success) {
       return reply.code(400).send({ error: 'invalid_query', detail: parsed.error.format() });
     }
-    const { sortBy, dir, accountId, assetClass } = parsed.data;
+    const { sortBy, dir, accountId, assetClass, date } = parsed.data;
 
     // 注: HoldingSnapshot の where では holding が 1 つの object なので、
     // accountId と assetClass を同時に絞るには holding 内でマージする必要がある。
@@ -62,14 +68,33 @@ export function registerRankingRoutes(app: FastifyInstance): void {
       arr.push(hs);
       byHolding.set(hs.holdingId, arr);
     }
-    const todaySnaps = [...byHolding.values()].map((arr) => arr[0]!).filter(Boolean);
-    const prevSnaps = [...byHolding.values()]
-      .map((arr) => arr[1])
-      .filter((x): x is NonNullable<typeof x> => x != null);
+
+    // 各 holding ごとに「target 以前で最新」を today、それより前を prev として選定。
+    // date 未指定なら今までと同じ (最新 + 前日)。
+    const todaySnaps: typeof all = [];
+    const prevSnaps: typeof all = [];
+    for (const arr of byHolding.values()) {
+      if (date) {
+        const idx = arr.findIndex((hs) => hs.marketDate <= date);
+        if (idx < 0) continue; // 指定日以前のスナップショット無し
+        const today = arr[idx];
+        const prev = arr[idx + 1];
+        if (today) todaySnaps.push(today);
+        if (prev) prevSnaps.push(prev);
+      } else {
+        if (arr[0]) todaySnaps.push(arr[0]);
+        if (arr[1]) prevSnaps.push(arr[1]);
+      }
+    }
+    if (todaySnaps.length === 0) {
+      return { capturedDate: null, prevCapturedDate: null, items: [] };
+    }
     const latestDateSet = new Set(todaySnaps.map((hs) => hs.marketDate));
     const allDatesDesc = [...latestDateSet].sort().reverse();
     const headerLatest = allDatesDesc[0] ?? null;
-    const headerPrev = allDatesDesc[1] ?? null;
+    const prevDateSet = new Set(prevSnaps.map((hs) => hs.marketDate));
+    const prevDatesDesc = [...prevDateSet].sort().reverse();
+    const headerPrev = prevDatesDesc[0] ?? null;
 
     type Agg = {
       securityId: string;

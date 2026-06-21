@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, Filter, Wallet, Layers } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Filter, Wallet, Layers, Calendar } from 'lucide-react';
 import { useAccounts, useRanking } from '../api/queries.js';
 import {
   ASSET_CLASS_LABELS,
@@ -23,6 +23,18 @@ const ASSET_CLASS_OPTIONS: AssetClass[] = [
 
 type SortBy = 'ratio' | 'price_ratio' | 'amount' | 'value';
 type Dir = 'asc' | 'desc';
+type DateMode = 'today' | 'yesterday' | 'custom';
+
+// 当日 (= 未指定) は API がデフォルトで最新を選ぶ。前日は今日の 1 日前を計算。
+// 米株 / 日本株で marketDate が厳密にズレているが、表示用の「前日」は JST 24h 前で近似。
+function computeDateParam(mode: DateMode, custom: string): string | undefined {
+  if (mode === 'today') return undefined;
+  if (mode === 'custom') return custom || undefined;
+  // yesterday: 今日の 1 日前 (JST)
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
 
 function formatJpy(n: number): string {
   return `¥${Math.round(n).toLocaleString('ja-JP')}`;
@@ -122,13 +134,17 @@ export function Ranking() {
   const [dir, setDir] = useState<Dir>('desc');
   const [accountId, setAccountId] = useState<string>('');
   const [assetClass, setAssetClass] = useState<string>('');
+  const [dateMode, setDateMode] = useState<DateMode>('today');
+  const [customDate, setCustomDate] = useState<string>('');
 
   const accounts = useAccounts();
+  const dateParam = useMemo(() => computeDateParam(dateMode, customDate), [dateMode, customDate]);
   const ranking = useRanking({
     sortBy,
     dir,
     accountId: accountId || undefined,
     assetClass: assetClass || undefined,
+    date: dateParam,
   });
 
   return (
@@ -177,14 +193,53 @@ export function Ranking() {
           </div>
         </div>
 
-        {/* セクション 2: フィルタ */}
+        {/* セクション 2: 日付 (当日 / 前日 / 日指定) */}
+        <div className="flex flex-col gap-2 md:flex-row md:items-center pt-3 border-t border-[var(--color-border)]">
+          <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide md:min-w-[5rem]">
+            <Calendar size={12} />
+            日付
+          </span>
+          <div className="flex items-center gap-2 flex-1">
+            <div className="inline-flex flex-1 md:flex-initial rounded-md border border-[var(--color-border)] overflow-hidden">
+              {([
+                { key: 'today', label: '当日' },
+                { key: 'yesterday', label: '前日' },
+                { key: 'custom', label: '日指定' },
+              ] as const).map(({ key, label }, i) => (
+                <button
+                  key={key}
+                  onClick={() => setDateMode(key)}
+                  className={`flex-1 md:flex-initial px-2 md:px-3 py-1.5 text-xs md:text-sm whitespace-nowrap transition ${
+                    i > 0 ? 'border-l border-[var(--color-border)]' : ''
+                  } ${
+                    dateMode === key
+                      ? 'bg-[var(--color-primary)] text-white'
+                      : 'bg-[var(--color-bg)] hover:bg-[var(--color-bg-elevated)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {dateMode === 'custom' && (
+              <input
+                type="date"
+                value={customDate}
+                onChange={(e) => setCustomDate(e.target.value)}
+                max={new Date().toISOString().slice(0, 10)}
+                className="flex-1 md:flex-initial px-2 py-1.5 text-sm rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] focus:border-[var(--color-primary)] focus:outline-none min-w-0"
+              />
+            )}
+          </div>
+        </div>
+
+        {/* セクション 3: フィルタ */}
         <div className="flex flex-col gap-2 md:flex-row md:items-center pt-3 border-t border-[var(--color-border)]">
           <div className="flex items-center justify-between">
             <span className="flex items-center gap-1 text-xs font-medium text-[var(--color-text-muted)] uppercase tracking-wide md:min-w-[5rem]">
               <Filter size={12} />
               フィルタ
             </span>
-            {/* リセットはラベル横に置いて、フィルタ行の改行が増えないように */}
             {(accountId || assetClass) && (
               <button
                 onClick={() => {
@@ -198,7 +253,6 @@ export function Ranking() {
             )}
           </div>
           <div className="flex items-center gap-2 flex-1">
-            {/* 口座 select (スマホでは半幅) */}
             <label className="flex flex-1 md:flex-initial items-center gap-1.5 pl-2 pr-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] focus-within:border-[var(--color-primary)] transition min-w-0">
               <Wallet size={14} className="text-[var(--color-text-muted)] flex-shrink-0" />
               <select
@@ -215,7 +269,6 @@ export function Ranking() {
               </select>
             </label>
 
-            {/* 種別 select */}
             <label className="flex flex-1 md:flex-initial items-center gap-1.5 pl-2 pr-1 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] focus-within:border-[var(--color-primary)] transition min-w-0">
               <Layers size={14} className="text-[var(--color-text-muted)] flex-shrink-0" />
               <select
@@ -232,7 +285,6 @@ export function Ranking() {
               </select>
             </label>
 
-            {/* md+ ではリセットを行末に */}
             {(accountId || assetClass) && (
               <button
                 onClick={() => {
