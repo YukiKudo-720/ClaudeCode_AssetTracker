@@ -41,18 +41,25 @@ sudo systemctl start asset-tracker
 
 PowerShell 管理者で:
 
+PC が元々起きていたか (= ユーザ操作中の可能性) で Suspend するかを切替えるため、
+4 タスク登録 (Suspend あり / NoSuspend を Pi が使い分け):
+
 ```powershell
 $ScriptPath = 'C:\Users\guilt\Projects\ClaudeCode_AssetTracker\scripts\orchestrate-and-suspend.ps1'
 
-$ActionMain = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-ExecutionPolicy Bypass -File `"$ScriptPath`" -Phase main -SuspendAfter"
-Register-ScheduledTask -TaskName 'MfOrchestrateMain' -Action $ActionMain `
-    -User $env:USERNAME -RunLevel Highest -Force
+function Register-Mf {
+    param([string]$Name, [string]$Phase, [bool]$Suspend)
+    $arg = "-ExecutionPolicy Bypass -File `"$ScriptPath`" -Phase $Phase"
+    if ($Suspend) { $arg += ' -SuspendAfter' }
+    $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $arg
+    Register-ScheduledTask -TaskName $Name -Action $action `
+        -User $env:USERNAME -RunLevel Highest -Force
+}
 
-$ActionRetry = New-ScheduledTaskAction -Execute 'powershell.exe' `
-    -Argument "-ExecutionPolicy Bypass -File `"$ScriptPath`" -Phase sbi-retry -SuspendAfter"
-Register-ScheduledTask -TaskName 'MfOrchestrateSbiRetry' -Action $ActionRetry `
-    -User $env:USERNAME -RunLevel Highest -Force
+Register-Mf 'MfOrchestrateMain'              'main'      $true
+Register-Mf 'MfOrchestrateMainNoSuspend'     'main'      $false
+Register-Mf 'MfOrchestrateSbiRetry'          'sbi-retry' $true
+Register-Mf 'MfOrchestrateSbiRetryNoSuspend' 'sbi-retry' $false
 ```
 
 ## 3. Pi cron

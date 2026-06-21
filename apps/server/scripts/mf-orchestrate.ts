@@ -17,12 +17,29 @@
 import '../src/env.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { env } from '../src/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOG_FILE = path.join(__dirname, '..', '..', '..', 'logs', 'mf-orchestrate.log');
+
+// pnpm の Junction を SSH/schtasks セッションが辿れない問題対策。
+// 子プロセスは `npx tsx` ではなく tsx 本体の絶対パスから node で起動する。
+// scrape-and-suspend.ps1 の Resolve-TsxCli と同じロジック。
+function resolveTsxCli(): string {
+  const repoRoot = path.resolve(__dirname, '..', '..', '..');
+  const pnpmStore = path.join(repoRoot, 'node_modules', '.pnpm');
+  const tsxDirs = readdirSync(pnpmStore)
+    .filter((d) => d.startsWith('tsx@'))
+    .sort()
+    .reverse();
+  if (tsxDirs.length === 0) {
+    throw new Error(`tsx not found under ${pnpmStore}`);
+  }
+  return path.join(pnpmStore, tsxDirs[0]!, 'node_modules', 'tsx', 'dist', 'cli.mjs');
+}
+const TSX_CLI = resolveTsxCli();
 
 const SBI_INSTITUTIONS = ['SBI証券', '住信SBIネット銀行'];
 
@@ -64,10 +81,10 @@ async function runScript(
   args: string[] = [],
 ): Promise<{ exit: number; stdout: string; stderr: string }> {
   const scriptPath = path.join(__dirname, scriptFile);
+  log(`runScript: node ${TSX_CLI} ${scriptPath} ${args.join(' ')}`);
   return new Promise((resolve, reject) => {
-    const child = spawn('npx', ['tsx', scriptPath, ...args], {
+    const child = spawn('node', [TSX_CLI, scriptPath, ...args], {
       cwd: path.join(__dirname, '..'),
-      shell: true,
       env: process.env,
     });
     let stdout = '';

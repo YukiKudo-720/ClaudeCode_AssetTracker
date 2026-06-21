@@ -63,9 +63,12 @@ epoch_from_iso() {
   date -d "$1" +%s 2>/dev/null || echo 0
 }
 
+PC_WAS_AWAKE=0
+
 wake_pc_if_needed() {
   if nc -z -w 5 "$PC_TS_IP" 22 2>/dev/null; then
-    log "PC は起動中"
+    log "PC は起動中 (= 操作中の可能性。Suspend させない)"
+    PC_WAS_AWAKE=1
   else
     log "PC を WoL で起こす"
     wakeonlan -i 192.168.0.255 "$PC_MAC" >/dev/null
@@ -73,11 +76,22 @@ wake_pc_if_needed() {
       sleep 3
       if nc -z -w 3 "$PC_TS_IP" 22 2>/dev/null; then
         log "PC 起動完了 (${i}回目で接続成功)"
+        PC_WAS_AWAKE=0
         return
       fi
     done
     log "PC 起動失敗 (90秒経過)"
     exit 1
+  fi
+}
+
+# PC が元々起きていれば NoSuspend Task、寝ていた (= 我々が起こした) なら Suspend Task。
+pick_task_name() {
+  local base="$1"
+  if [ "$PC_WAS_AWAKE" = "1" ]; then
+    echo "${base}NoSuspend"
+  else
+    echo "$base"
   fi
 }
 
@@ -113,7 +127,7 @@ main_handler() {
   rm -f "$STATE_FILE"
 
   wake_pc_if_needed
-  run_pc_task 'MfOrchestrateMain'
+  run_pc_task "$(pick_task_name MfOrchestrateMain)"
 
   log "Task Main 完了想定。SBI 系状態を確認"
   # フェーズ A は内部で MF を更新→scrape:all→POST mf-status まで行う。最終 POST が
@@ -168,7 +182,7 @@ sbi_retry_check_handler() {
   fi
 
   wake_pc_if_needed
-  run_pc_task 'MfOrchestrateSbiRetry'
+  run_pc_task "$(pick_task_name MfOrchestrateSbiRetry)"
 
   sleep 5
   if fetch_mf_status_sbi_in_progress; then
