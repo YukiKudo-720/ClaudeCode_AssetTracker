@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   MfStatusResponse,
   ScrapeRunSummary,
@@ -306,6 +306,7 @@ export function Settings() {
   const [tick, setTick] = useState(0);
   const wakePc = useWakePc();
   const wakePcMf = useWakePcMf();
+  const queryClient = useQueryClient();
   const fx = useFxRates();
   const syncStatus = useSyncStatus();
   const mfStatus = useMfStatus();
@@ -341,6 +342,15 @@ export function Settings() {
     const id = window.setInterval(() => setTick((t) => t + 1), 1000);
     return () => window.clearInterval(id);
   }, [isRunning]);
+
+  // 完了タイミングで即時に各 status query を invalidate (60s polling を待たない)
+  useEffect(() => {
+    if (isDone) {
+      void queryClient.invalidateQueries({ queryKey: ['mf-status'] });
+      void queryClient.invalidateQueries({ queryKey: ['sync-status'] });
+      void queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    }
+  }, [isDone, queryClient]);
 
   function handleSave() {
     setEndpoint(endpoint.trim());
