@@ -45,9 +45,11 @@ function tone(n: number): string {
 }
 
 function Row({ item, rank, sortBy }: { item: RankingItem; rank: number; sortBy: SortBy }) {
+  // スマホでは % は単一列に集約。sortBy が price_ratio なら単価%、それ以外は評価% を表示。
+  const mobileRatio = sortBy === 'price_ratio' ? item.priceDiffRatio : item.diffRatio;
   return (
     <tr className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]">
-      <td className="py-2 pr-2 tabular-nums text-[var(--color-text-muted)] w-10">{rank}</td>
+      <td className="py-2 pr-1 tabular-nums text-[var(--color-text-muted)] text-xs">{rank}</td>
       <td className="py-2 pr-2">
         <div className="font-medium">{item.symbol}</div>
         <div className="text-xs text-[var(--color-text-muted)] line-clamp-1">{item.name}</div>
@@ -62,13 +64,22 @@ function Row({ item, rank, sortBy }: { item: RankingItem; rank: number; sortBy: 
       >
         {item.prevValueJpy != null ? formatSignedJpy(item.diffJpy) : '—'}
       </td>
+
+      {/* スマホ: 単一の % 列 (sortBy で評価%/単価% 切替) */}
       <td
-        className={`py-2 pr-2 text-right tabular-nums ${sortBy === 'ratio' ? 'font-semibold' : ''} ${tone(item.diffRatio ?? 0)}`}
+        className={`py-2 pr-2 text-right tabular-nums md:hidden ${tone(mobileRatio ?? 0)}`}
+      >
+        {mobileRatio != null ? formatSignedPct(mobileRatio) : '—'}
+      </td>
+
+      {/* PC: 評価% と 単価% の 2 列 */}
+      <td
+        className={`hidden md:table-cell py-2 pr-2 text-right tabular-nums ${sortBy === 'ratio' ? 'font-semibold' : ''} ${tone(item.diffRatio ?? 0)}`}
       >
         {item.diffRatio != null ? formatSignedPct(item.diffRatio) : '—'}
       </td>
       <td
-        className={`py-2 pr-2 text-right tabular-nums ${sortBy === 'price_ratio' ? 'font-semibold' : ''} ${tone(item.priceDiffRatio ?? 0)}`}
+        className={`hidden md:table-cell py-2 pr-2 text-right tabular-nums ${sortBy === 'price_ratio' ? 'font-semibold' : ''} ${tone(item.priceDiffRatio ?? 0)}`}
         title="単価ベース騰落率 (株数変動の影響を除く)"
       >
         {item.priceDiffRatio != null ? formatSignedPct(item.priceDiffRatio) : '—'}
@@ -234,12 +245,17 @@ export function Ranking() {
           <table className="w-full text-sm">
             <thead className="text-left text-xs text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
               <tr>
-                <th className="py-2 pr-2">#</th>
+                <th className="py-2 pr-1">#</th>
                 <th className="py-2 pr-2">銘柄</th>
                 <th className="py-2 pr-2 text-right hidden md:table-cell">評価額</th>
                 <th className="py-2 pr-2 text-right">騰落 (¥)</th>
-                <th className="py-2 pr-2 text-right">評価%</th>
-                <th className="py-2 pr-2 text-right">単価%</th>
+                {/* スマホ: % 単一列 (sortBy に追従) */}
+                <th className="py-2 pr-2 text-right md:hidden">
+                  {sortBy === 'price_ratio' ? '単価%' : '評価%'}
+                </th>
+                {/* PC: 評価%・単価% 並列 */}
+                <th className="hidden md:table-cell py-2 pr-2 text-right">評価%</th>
+                <th className="hidden md:table-cell py-2 pr-2 text-right">単価%</th>
                 <th className="py-2 pr-2 hidden lg:table-cell">口座</th>
               </tr>
             </thead>
