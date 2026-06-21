@@ -7,14 +7,14 @@
 #
 # 想定 Task:
 #   MfOrchestrateA       -Phase A -SuspendAfter   (Pi cron が WoL→発火)
-#   MfOrchestrateBCheck  -Phase B-check -SuspendAfter
+#   MfOrchestrateBStep   -Phase B-step -SuspendAfter
 #
 # Pi cron が「PC は元々起きていた」と判断したケースでは、suspend させたくないので
 # Task 側で SuspendAfter 無しの別 Task を用意するか、Pi から渡された引数で切替する。
 # 当面は SuspendAfter ありで運用 (= Pi が起こしたケースのみ Task 発火する想定)。
 
 param(
-    [ValidateSet('A', 'B-check')]
+    [ValidateSet('A', 'B-step')]
     [string]$Phase = 'A',
     [switch]$SuspendAfter
 )

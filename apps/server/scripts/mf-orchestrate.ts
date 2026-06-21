@@ -1,55 +1,35 @@
-// MF 更新オーケストレータ。Pi cron から発火される 2 種類のフェーズを処理する。
+// MF 更新オーケストレータ。
 //
-//   --phase=A         新規メインサイクル: 既存 state を破棄、bulk-update → 5min →
-//                     poll until non-SBI 全完了 → scrape:all → SBI 未完了なら state
-//                     を残してフェーズ B 経路に渡す
-//   --phase=B-check   フェーズ B チェック (Pi cron が 30 分毎に叩く想定):
-//                     state.json を見て、nextRetryAt 経過していれば SBI 個別更新 +
-//                     5 分待 + check → 完了なら scrape:all + state クリア、未完了
-//                     なら nextRetryAt 更新。startedAt から 3 時間経過なら state
-//                     破棄して諦め。
+// 設計方針:
+//   このスクリプトは「単発の一連操作」のみを行う。リトライ周期や上限などの
+//   スケジューリング判断は Pi 側 (scripts/pi-mf-orchestrate-controller.sh)
+//   で行い、状態は Pi 上の data/mf-orchestrate-state.json に保持する。
 //
-// state.json schema:
-//   { startedAt: ISO, nextRetryAt: ISO, lastCheckedAt: ISO|null, attempts: number }
+// 引数:
+//   --phase=A         メインサイクル: bulk-update → 5min → poll (SBI除く全完了
+//                     まで 1 分毎) → scrape:all → 状態を Pi に POST → 終了
+//   --phase=B-step    SBI リトライ 1 ステップ: SBI 個別更新 → 5min → check →
+//                     完了なら scrape:all → 状態を Pi に POST → 終了
 //
-// 同時実行ガード: data/mf-orchestrate.lock に PID を書き、A 起動時に既存 PID を kill。
-//
-// 状態反映: 各 mf:check-status 後に Pi の /api/mf-status へ POST して PWA に表示する。
+// 状態送信: 各 mf:check-status の結果を Pi の POST /api/mf-status へ送信。
+//           Pi は受信した accounts から SBI 系の inProgress を判定して state を更新する。
 
 import '../src/env.js';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { env } from '../src/env.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = path.resolve(__dirname, '..', '..', '..', 'data');
-const STATE_FILE = path.join(DATA_DIR, 'mf-orchestrate-state.json');
-const LOCK_FILE = path.join(DATA_DIR, 'mf-orchestrate.lock');
 const LOG_FILE = path.join(__dirname, '..', '..', '..', 'logs', 'mf-orchestrate.log');
 
 const SBI_INSTITUTIONS = ['SBI証券', '住信SBIネット銀行'];
 
-// タイミング定数 (ms)
 const PHASE_A_INITIAL_WAIT_MS = 5 * 60 * 1000;
 const PHASE_A_POLL_INTERVAL_MS = 60 * 1000;
-const PHASE_B_RETRY_INTERVAL_MS = 30 * 60 * 1000;
+const PHASE_A_POLL_MAX_DURATION_MS = 20 * 60 * 1000; // フェーズ A の poll は最大 20 分で打ち切り
 const PHASE_B_POST_UPDATE_WAIT_MS = 5 * 60 * 1000;
-const PHASE_B_MAX_DURATION_MS = 3 * 60 * 60 * 1000;
-
-interface OrchestrateState {
-  startedAt: string;
-  nextRetryAt: string;
-  lastCheckedAt: string | null;
-  attempts: number;
-}
 
 interface CheckStatusResult {
   allDone: boolean;
@@ -79,50 +59,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function readState(): OrchestrateState | null {
-  if (!existsSync(STATE_FILE)) return null;
-  try {
-    return JSON.parse(readFileSync(STATE_FILE, 'utf8')) as OrchestrateState;
-  } catch {
-    return null;
-  }
-}
-
-function writeState(s: OrchestrateState): void {
-  mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(STATE_FILE, JSON.stringify(s, null, 2), 'utf8');
-}
-
-function clearState(): void {
-  if (existsSync(STATE_FILE)) unlinkSync(STATE_FILE);
-}
-
-function takeLock(): void {
-  mkdirSync(DATA_DIR, { recursive: true });
-  // 既存ロック PID を読み、生きていれば kill
-  if (existsSync(LOCK_FILE)) {
-    const oldPid = Number(readFileSync(LOCK_FILE, 'utf8').trim());
-    if (oldPid && oldPid !== process.pid) {
-      try {
-        process.kill(oldPid, 0); // 生存確認 (kill しない)
-        log(`既存プロセス PID=${oldPid} を kill します`);
-        process.kill(oldPid, 'SIGTERM');
-      } catch {
-        // 既に死んでいる
-      }
-    }
-  }
-  writeFileSync(LOCK_FILE, String(process.pid), 'utf8');
-}
-
-function releaseLock(): void {
-  if (existsSync(LOCK_FILE)) {
-    const pid = Number(readFileSync(LOCK_FILE, 'utf8').trim());
-    if (pid === process.pid) unlinkSync(LOCK_FILE);
-  }
-}
-
-// tsx scripts/{name}.ts を呼んで stdout/stderr を集める
 async function runScript(
   scriptFile: string,
   args: string[] = [],
@@ -151,15 +87,12 @@ async function runScript(
 
 async function checkStatus(): Promise<CheckStatusResult> {
   const r = await runScript('mf-check-status.ts', ['--headless']);
-  // exit code 0/1/2 はどれもデータ取得は成功。1=更新中残, 2=エラーあり
   if (r.exit > 2) throw new Error(`mf-check-status 失敗 exit=${r.exit}: ${r.stderr}`);
-  // stdout の最初の JSON ブロックを取り出す
   const m = r.stdout.match(/\{[\s\S]*\}/);
   if (!m) throw new Error(`check-status の出力に JSON が含まれません: ${r.stdout}`);
   return JSON.parse(m[0]) as CheckStatusResult;
 }
 
-// 状態を Pi の API に POST (失敗しても継続)
 async function postStatusToPi(result: CheckStatusResult, phase: string): Promise<void> {
   try {
     const url = env.SYNC_TARGET;
@@ -173,7 +106,11 @@ async function postStatusToPi(result: CheckStatusResult, phase: string): Promise
         'Content-Type': 'application/json',
         Authorization: `Bearer ${env.ASSET_TRACKER_TOKEN}`,
       },
-      body: JSON.stringify({ phase, accounts: result.accounts, checkedAt: new Date().toISOString() }),
+      body: JSON.stringify({
+        phase,
+        accounts: result.accounts,
+        checkedAt: new Date().toISOString(),
+      }),
     });
     if (!res.ok) {
       log(`Pi への状態送信失敗 status=${res.status}: ${await res.text().catch(() => '')}`);
@@ -192,8 +129,7 @@ function nonSbiStillInProgress(result: CheckStatusResult): boolean {
 }
 
 async function phaseA(): Promise<void> {
-  log('=== phase A 開始 (既存 state を破棄) ===');
-  clearState();
+  log('=== phase A 開始 ===');
 
   log('mf-bulk-update を実行');
   const bulk = await runScript('mf-bulk-update.ts', ['--headless']);
@@ -205,7 +141,7 @@ async function phaseA(): Promise<void> {
   log(`初回チェックまで ${PHASE_A_INITIAL_WAIT_MS / 1000}s 待機`);
   await sleep(PHASE_A_INITIAL_WAIT_MS);
 
-  // SBI 除く全完了まで 1 分毎ループ
+  const pollStart = Date.now();
   while (true) {
     const status = await checkStatus();
     await postStatusToPi(status, 'A');
@@ -213,8 +149,14 @@ async function phaseA(): Promise<void> {
       log('SBI 系除く全口座が完了。scrape:all へ移行');
       break;
     }
+    if (Date.now() - pollStart > PHASE_A_POLL_MAX_DURATION_MS) {
+      log(`poll 上限 ${PHASE_A_POLL_MAX_DURATION_MS / 60000}分 を超過。打ち切って scrape:all へ進む`);
+      break;
+    }
     const stillUpdating = status.inProgress.filter((n) => !SBI_INSTITUTIONS.includes(n));
-    log(`まだ更新中 (SBI 系除く): ${stillUpdating.join(', ')}。${PHASE_A_POLL_INTERVAL_MS / 1000}s 後再確認`);
+    log(
+      `まだ更新中 (SBI 系除く): ${stillUpdating.join(', ')}。${PHASE_A_POLL_INTERVAL_MS / 1000}s 後再確認`,
+    );
     await sleep(PHASE_A_POLL_INTERVAL_MS);
   }
 
@@ -224,42 +166,15 @@ async function phaseA(): Promise<void> {
     log(`scrape:all 失敗 exit=${scrape.exit} stderr=${scrape.stderr.slice(0, 300)}`);
   }
 
-  // SBI 状態確認
-  const sbiStatus = await checkStatus();
-  await postStatusToPi(sbiStatus, 'A');
-  if (sbiStillInProgress(sbiStatus)) {
-    log('SBI 系が未完了。フェーズ B に引き継ぎ');
-    const now = new Date();
-    writeState({
-      startedAt: now.toISOString(),
-      nextRetryAt: new Date(now.getTime() + PHASE_B_RETRY_INTERVAL_MS).toISOString(),
-      lastCheckedAt: now.toISOString(),
-      attempts: 0,
-    });
-  } else {
-    log('SBI 系も完了。サイクル終了');
-  }
+  // 最終状態を Pi に POST。SBI 系の inProgress を見て Pi が state を作るか判断する。
+  const final = await checkStatus();
+  await postStatusToPi(final, 'A');
+  log('=== phase A 終了 ===');
 }
 
-async function phaseBCheck(): Promise<void> {
-  const state = readState();
-  if (!state) {
-    log('state なし。何もしない');
-    return;
-  }
-  const now = Date.now();
-  const elapsed = now - new Date(state.startedAt).getTime();
-  if (elapsed > PHASE_B_MAX_DURATION_MS) {
-    log(`フェーズ B 開始から ${Math.round(elapsed / 60000)}分 経過。3 時間上限を超えたので諦めて state 破棄`);
-    clearState();
-    return;
-  }
-  if (new Date(state.nextRetryAt).getTime() > now) {
-    log(`次リトライ時刻 ${state.nextRetryAt} まで待機 (現在 ${new Date(now).toISOString()})`);
-    return;
-  }
-
-  log(`SBI 個別更新を実行 (attempt #${state.attempts + 1})`);
+async function phaseBStep(): Promise<void> {
+  log('=== phase B step 開始 ===');
+  log('SBI 系の個別更新を実行');
   for (const inst of SBI_INSTITUTIONS) {
     const r = await runScript('mf-update-sbi.ts', ['--headless', `--institution=${inst}`]);
     if (r.exit !== 0) {
@@ -267,42 +182,32 @@ async function phaseBCheck(): Promise<void> {
     }
   }
 
-  log(`SBI 完了確認まで ${PHASE_B_POST_UPDATE_WAIT_MS / 1000}s 待機`);
+  log(`完了確認まで ${PHASE_B_POST_UPDATE_WAIT_MS / 1000}s 待機`);
   await sleep(PHASE_B_POST_UPDATE_WAIT_MS);
 
   const status = await checkStatus();
   await postStatusToPi(status, 'B');
   if (!sbiStillInProgress(status)) {
-    log('SBI 系完了。scrape:all 実行 + state クリア');
+    log('SBI 系完了。scrape:all 実行');
     await runScript('scrape-all.ts');
-    clearState();
+    const final = await checkStatus();
+    await postStatusToPi(final, 'B');
   } else {
-    log('SBI 系まだ更新中。MF サーバ遅延と判定。30 分後に再試行');
-    const next = new Date(now + PHASE_B_RETRY_INTERVAL_MS).toISOString();
-    writeState({
-      ...state,
-      nextRetryAt: next,
-      lastCheckedAt: new Date(now).toISOString(),
-      attempts: state.attempts + 1,
-    });
+    log('SBI 系まだ更新中。次回 B-step は Pi のスケジューラが判断する');
   }
+  log('=== phase B step 終了 ===');
 }
 
 async function main(): Promise<void> {
   const phaseArg = process.argv.find((a) => a.startsWith('--phase='));
   const phase = phaseArg?.split('=')[1] ?? 'A';
 
-  takeLock();
-  try {
-    if (phase === 'A') {
-      await phaseA();
-    } else if (phase === 'B-check') {
-      await phaseBCheck();
-    } else {
-      throw new Error(`未知の phase: ${phase}`);
-    }
-  } finally {
-    releaseLock();
+  if (phase === 'A') {
+    await phaseA();
+  } else if (phase === 'B-step') {
+    await phaseBStep();
+  } else {
+    throw new Error(`未知の phase: ${phase} (A | B-step)`);
   }
 }
 
