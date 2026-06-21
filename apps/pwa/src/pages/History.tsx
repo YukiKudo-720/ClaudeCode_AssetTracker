@@ -284,29 +284,35 @@ export function History() {
             const visibleTopDown = [...visible].reverse();
             return (
               <>
-                <div className="flex items-baseline justify-between mb-2 pb-2 border-b border-[var(--color-border)]">
-                  <span className="text-sm font-medium">
+                {/* 上下 2 行構成にして、狭い固定パネルでも見やすく:
+                    1 行目: 「最新 (日付)」 or ホバー日
+                    2 行目: 「総額 ¥…」+ 前日比% */}
+                <div className="mb-2 pb-2 border-b border-[var(--color-border)]">
+                  <div className="text-xs text-[var(--color-text-muted)]">
                     {hoverPoint ? point.date : `最新 (${point.date})`}
-                  </span>
-                  <span className="flex items-baseline gap-1.5">
-                    <span className="text-base font-semibold tabular-nums">
-                      総額 {formatJpy(total)}
-                    </span>
-                    {totalDiffRatio != null && (
-                      <span
-                        className={`text-xs tabular-nums ${
-                          totalDiffRatio > 0
-                            ? 'text-[var(--color-positive)]'
-                            : totalDiffRatio < 0
-                              ? 'text-[var(--color-negative)]'
-                              : 'text-[var(--color-text-muted)]'
-                        }`}
-                      >
-                        ({totalDiffRatio >= 0 ? '+' : '−'}
-                        {(Math.abs(totalDiffRatio) * 100).toFixed(2)}%)
+                  </div>
+                  <div className="flex items-baseline justify-between gap-1.5 mt-0.5">
+                    <span className="text-sm text-[var(--color-text-muted)]">総額</span>
+                    <span className="flex items-baseline gap-1.5">
+                      <span className="text-base font-semibold tabular-nums">
+                        {formatJpy(total)}
                       </span>
-                    )}
-                  </span>
+                      {totalDiffRatio != null && (
+                        <span
+                          className={`text-xs tabular-nums ${
+                            totalDiffRatio > 0
+                              ? 'text-[var(--color-positive)]'
+                              : totalDiffRatio < 0
+                                ? 'text-[var(--color-negative)]'
+                                : 'text-[var(--color-text-muted)]'
+                          }`}
+                        >
+                          ({totalDiffRatio >= 0 ? '+' : '−'}
+                          {(Math.abs(totalDiffRatio) * 100).toFixed(2)}%)
+                        </span>
+                      )}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex flex-col gap-1 text-sm">
                   {visibleTopDown.map((a) => {
