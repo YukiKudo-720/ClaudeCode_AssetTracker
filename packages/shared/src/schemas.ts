@@ -330,6 +330,17 @@ export const TodaiResponseSchema = z.object({
 export type TodaiResponse = z.infer<typeof TodaiResponseSchema>;
 
 
+// このツールが MF 経由で取得対象としている機関の白リスト。
+// server / PWA / orchestrate / mf-check-status の全てで参照して整合性を取る。
+export const TRACKED_MF_INSTITUTIONS = [
+  '楽天銀行',
+  '三菱UFJ銀行',
+  '住信SBIネット銀行',
+  '楽天証券',
+  'SBI証券',
+] as const;
+export type TrackedMfInstitution = (typeof TRACKED_MF_INSTITUTIONS)[number];
+
 // /api/mf-status — MF 連携口座の最新更新状況 (orchestrate が POST、PWA が GET)
 export const MfAccountStatusItemSchema = z.object({
   institution: z.string(),

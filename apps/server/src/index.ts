@@ -18,12 +18,17 @@ import { registerFxRoutes } from './routes/fx.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerWakePcRoutes } from './routes/wake-pc.js';
 import { registerRankingRoutes } from './routes/ranking.js';
-import { registerMfStatusRoutes } from './routes/mf-status.js';
+import { registerMfStatusRoutes, cleanupMfAccountStatus } from './routes/mf-status.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PWA_DIST_PATH = path.resolve(__dirname, '..', '..', 'pwa', 'dist');
 
 async function main(): Promise<void> {
+  // 起動時のデータクリーンアップ (whitelist 外の古い MfAccountStatus を削除)
+  await cleanupMfAccountStatus().catch((err) => {
+    logger.warn({ err }, 'cleanupMfAccountStatus failed (non-fatal)');
+  });
+
   const app = Fastify({ loggerInstance: logger });
 
   // CORS: PWA (別オリジン) からの fetch を許可

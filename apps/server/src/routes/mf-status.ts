@@ -1,6 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
+import { TRACKED_MF_INSTITUTIONS } from '@asset-tracker/shared';
 import { prisma } from '../db.js';
+import { logger } from '../logger.js';
+
+// 起動時に whitelist 外を一掃。古い未絞り込みデータが残らないように。
+export async function cleanupMfAccountStatus(): Promise<void> {
+  const result = await prisma.mfAccountStatus.deleteMany({
+    where: { institution: { notIn: [...TRACKED_MF_INSTITUTIONS] } },
+  });
+  if (result.count > 0) {
+    logger.info({ deleted: result.count }, 'cleaned up untracked MF account statuses');
+  }
+}
 
 // PC の mf-orchestrate.ts が check-status 結果を Pi に POST する用の endpoint。
 // 既存の MfAccountStatus 行を機関ごとに upsert (institution が primary key)。
@@ -27,13 +39,13 @@ export function registerMfStatusRoutes(app: FastifyInstance): void {
     }
     const { phase, checkedAt, accounts } = parsed.data;
     const checked = new Date(checkedAt);
-    // フィルタが厳格化されたため、受信リストに含まれない古いレコード (トラッキング
-    // 対象外の機関) は削除して綺麗に保つ (リスト全置換セマンティクス)。
-    const receivedNames = accounts.map((a) => a.name);
+    // 受信は whitelist で絞られているはずだが念のため再フィルタ + 全置換
+    const trackedSet = new Set<string>(TRACKED_MF_INSTITUTIONS);
+    const validAccounts = accounts.filter((a) => trackedSet.has(a.name));
     await prisma.mfAccountStatus.deleteMany({
-      where: { institution: { notIn: receivedNames } },
+      where: { institution: { notIn: validAccounts.map((a) => a.name) } },
     });
-    for (const a of accounts) {
+    for (const a of validAccounts) {
       await prisma.mfAccountStatus.upsert({
         where: { institution: a.name },
         update: {
@@ -55,7 +67,7 @@ export function registerMfStatusRoutes(app: FastifyInstance): void {
         },
       });
     }
-    return { ok: true, count: accounts.length };
+    return { ok: true, count: validAccounts.length };
   });
 
   // PWA 表示用。最新スナップショットを institution 順で返す。

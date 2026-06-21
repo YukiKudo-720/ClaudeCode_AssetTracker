@@ -5,6 +5,7 @@ import type {
   ScrapeRunSummary,
   SyncStatusSource,
 } from '@asset-tracker/shared';
+import { TRACKED_MF_INSTITUTIONS } from '@asset-tracker/shared';
 import { CheckCircle2, AlertTriangle, Clock, ChevronDown, ChevronRight, Eye, EyeOff } from 'lucide-react';
 import {
   apiFetch,
@@ -239,8 +240,13 @@ function SyncStatusCard({
         )}
       </dl>
 
-      {/* MoneyForward カードのみ、折りたたみで各連携口座の詳細を表示 */}
-      {row.source === 'moneyforward' && mfStatus && mfStatus.accounts.length > 0 && (
+      {/* MoneyForward カードのみ、折りたたみで各連携口座の詳細を表示。
+          DB に古い未絞り込みデータが残っていても、フロント側で whitelist フィルタ */}
+      {row.source === 'moneyforward' && mfStatus && (() => {
+        const trackedSet = new Set<string>(TRACKED_MF_INSTITUTIONS);
+        const tracked = mfStatus.accounts.filter((a) => trackedSet.has(a.institution));
+        if (tracked.length === 0) return null;
+        return (
         <div className="mt-2 pt-2 border-t border-[var(--color-border)]">
           <button
             type="button"
@@ -248,11 +254,11 @@ function SyncStatusCard({
             className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
           >
             {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-            連携口座詳細 ({mfStatus.accounts.length})
+            連携口座詳細 ({tracked.length})
           </button>
           {expanded && (
             <div className="mt-2 space-y-1">
-              {mfStatus.accounts.map((a) => {
+              {tracked.map((a) => {
                 const accTone = a.hasError
                   ? 'text-[var(--color-negative)]'
                   : a.inProgress
@@ -278,7 +284,8 @@ function SyncStatusCard({
             </div>
           )}
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
