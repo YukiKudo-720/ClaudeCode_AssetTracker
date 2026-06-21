@@ -45,7 +45,10 @@ function tone(n: number): string {
 }
 
 function Row({ item, rank, sortBy }: { item: RankingItem; rank: number; sortBy: SortBy }) {
-  // スマホでは % は単一列に集約。sortBy が price_ratio なら単価%、それ以外は評価% を表示。
+  // スマホでは「金額」列も「%」列も sortBy に追従して単一表示する。
+  // 金額: value で並び替え中なら 評価額、それ以外は 騰落額。
+  // %   : price_ratio で並び替え中なら 単価%、それ以外は 評価%。
+  const showAmountAsValue = sortBy === 'value';
   const mobileRatio = sortBy === 'price_ratio' ? item.priceDiffRatio : item.diffRatio;
   return (
     <tr className="border-b border-[var(--color-border)] hover:bg-[var(--color-bg-elevated)]">
@@ -54,13 +57,28 @@ function Row({ item, rank, sortBy }: { item: RankingItem; rank: number; sortBy: 
         <div className="font-medium">{item.symbol}</div>
         <div className="text-xs text-[var(--color-text-muted)] line-clamp-1">{item.name}</div>
       </td>
+
+      {/* スマホ: 単一の金額列 (sortBy='value' なら評価額、それ以外は騰落額) */}
       <td
-        className={`py-2 pr-2 text-right tabular-nums whitespace-nowrap hidden md:table-cell ${sortBy === 'value' ? 'font-semibold' : ''}`}
+        className={`md:hidden py-2 pr-2 text-right tabular-nums whitespace-nowrap ${
+          showAmountAsValue ? '' : tone(item.diffJpy)
+        }`}
+      >
+        {showAmountAsValue
+          ? formatJpy(item.totalValueJpy)
+          : item.prevValueJpy != null
+            ? formatSignedJpy(item.diffJpy)
+            : '—'}
+      </td>
+
+      {/* PC: 評価額 + 騰落額 2 列 */}
+      <td
+        className={`hidden md:table-cell py-2 pr-2 text-right tabular-nums whitespace-nowrap ${sortBy === 'value' ? 'font-semibold' : ''}`}
       >
         {formatJpy(item.totalValueJpy)}
       </td>
       <td
-        className={`py-2 pr-2 text-right tabular-nums whitespace-nowrap ${sortBy === 'amount' ? 'font-semibold' : ''} ${tone(item.diffJpy)}`}
+        className={`hidden md:table-cell py-2 pr-2 text-right tabular-nums whitespace-nowrap ${sortBy === 'amount' ? 'font-semibold' : ''} ${tone(item.diffJpy)}`}
       >
         {item.prevValueJpy != null ? formatSignedJpy(item.diffJpy) : '—'}
       </td>
@@ -247,8 +265,13 @@ export function Ranking() {
               <tr>
                 <th className="py-2 pr-1">#</th>
                 <th className="py-2 pr-2">銘柄</th>
-                <th className="py-2 pr-2 text-right whitespace-nowrap hidden md:table-cell">評価額</th>
-                <th className="py-2 pr-2 text-right whitespace-nowrap">騰落 (¥)</th>
+                {/* スマホ: 金額列 (sortBy='value' なら評価額、それ以外は騰落額) */}
+                <th className="md:hidden py-2 pr-2 text-right whitespace-nowrap">
+                  {sortBy === 'value' ? '評価額' : '騰落 (¥)'}
+                </th>
+                {/* PC: 評価額 + 騰落額 2 列 */}
+                <th className="hidden md:table-cell py-2 pr-2 text-right whitespace-nowrap">評価額</th>
+                <th className="hidden md:table-cell py-2 pr-2 text-right whitespace-nowrap">騰落 (¥)</th>
                 {/* スマホ: % 単一列 (sortBy に追従) */}
                 <th className="py-2 pr-2 text-right md:hidden">
                   {sortBy === 'price_ratio' ? '単価%' : '評価%'}
