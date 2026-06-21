@@ -6,6 +6,7 @@ import type {
   FxRatesResponse,
   HistoryTotalResponse,
   HoldingsResponse,
+  MfStatusResponse,
   RankingResponse,
   ScrapeRunSummary,
   SyncStatusResponse,
@@ -25,6 +26,14 @@ export function useScrapeRuns() {
   return useQuery({
     queryKey: ['runs'],
     queryFn: () => apiFetch<ScrapeRunSummary[]>('/api/runs'),
+  });
+}
+
+export function useMfStatus() {
+  return useQuery({
+    queryKey: ['mf-status'],
+    queryFn: () => apiFetch<MfStatusResponse>('/api/mf-status'),
+    refetchInterval: 60_000,
   });
 }
 

@@ -18,6 +18,7 @@ import { registerFxRoutes } from './routes/fx.js';
 import { registerSyncRoutes } from './routes/sync.js';
 import { registerWakePcRoutes } from './routes/wake-pc.js';
 import { registerRankingRoutes } from './routes/ranking.js';
+import { registerMfStatusRoutes } from './routes/mf-status.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PWA_DIST_PATH = path.resolve(__dirname, '..', '..', 'pwa', 'dist');
@@ -52,6 +53,7 @@ async function main(): Promise<void> {
     registerSyncRoutes(instance);
     registerWakePcRoutes(instance);
     registerRankingRoutes(instance);
+    registerMfStatusRoutes(instance);
   });
 
   // PWA を Fastify から静的配信 (本番モード)。

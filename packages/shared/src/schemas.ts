@@ -330,6 +330,24 @@ export const TodaiResponseSchema = z.object({
 export type TodaiResponse = z.infer<typeof TodaiResponseSchema>;
 
 
+// /api/mf-status — MF 連携口座の最新更新状況 (orchestrate が POST、PWA が GET)
+export const MfAccountStatusItemSchema = z.object({
+  institution: z.string(),
+  inProgress: z.boolean(),
+  hasError: z.boolean(),
+  errorMessage: z.string().nullable(),
+  lastUpdated: z.string().nullable(),
+  checkedAt: z.string(),
+  phase: z.string(),
+});
+export type MfAccountStatusItem = z.infer<typeof MfAccountStatusItemSchema>;
+
+export const MfStatusResponseSchema = z.object({
+  checkedAt: z.string().nullable(),
+  accounts: z.array(MfAccountStatusItemSchema),
+});
+export type MfStatusResponse = z.infer<typeof MfStatusResponseSchema>;
+
 // /api/ranking — 当日 (= 最新 capturedDate) と前日の差分で銘柄ランキング。
 // cash は除外。query: sortBy (ratio|amount) / dir (asc|desc) / accountId? / categoryId?
 export const RankingItemSchema = z.object({

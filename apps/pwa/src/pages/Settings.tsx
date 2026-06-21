@@ -10,7 +10,7 @@ import {
   getToken,
   setToken,
 } from '../api/client.js';
-import { useWakePc, useFxRates, useSyncStatus } from '../api/queries.js';
+import { useWakePc, useFxRates, useSyncStatus, useMfStatus } from '../api/queries.js';
 
 const SOURCE_LABELS: Record<string, string> = {
   moneyforward: 'MoneyForward (MF)',
@@ -232,6 +232,7 @@ export function Settings() {
   const wakePc = useWakePc();
   const fx = useFxRates();
   const syncStatus = useSyncStatus();
+  const mfStatus = useMfStatus();
 
   // 実行中だけ /api/runs を polling
   const runs = useQuery({
@@ -353,6 +354,73 @@ export function Settings() {
             <p className="text-xs text-[var(--color-text-muted)]">
               {syncStatus.data.staleThresholdHours} 時間以内に成功実行が無いと「更新なし」扱い。
             </p>
+          </div>
+        )}
+      </section>
+
+      <section>
+        <h2 className="text-base font-semibold mb-3">MF 連携口座の状況</h2>
+        {mfStatus.isLoading && (
+          <p className="text-sm text-[var(--color-text-muted)]">読み込み中…</p>
+        )}
+        {mfStatus.isError && (
+          <p className="text-sm text-[var(--color-negative)]">取得できませんでした</p>
+        )}
+        {mfStatus.data && mfStatus.data.accounts.length === 0 && (
+          <p className="text-sm text-[var(--color-text-muted)]">
+            まだ orchestrate 未実行。Pi cron 発火後に表示されます。
+          </p>
+        )}
+        {mfStatus.data && mfStatus.data.accounts.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-[var(--color-text-muted)]">
+              最終チェック:{' '}
+              {mfStatus.data.checkedAt
+                ? new Date(mfStatus.data.checkedAt).toLocaleString('ja-JP')
+                : '—'}
+            </p>
+            <div className="grid gap-1.5 md:grid-cols-2">
+              {mfStatus.data.accounts.map((a) => {
+                const isSbi =
+                  a.institution === 'SBI証券' || a.institution === '住信SBIネット銀行';
+                const tone = a.hasError
+                  ? 'border-[var(--color-negative)] bg-[var(--color-negative)]/5'
+                  : a.inProgress
+                    ? 'border-[var(--color-accent)] bg-[var(--color-accent)]/5'
+                    : 'border-[var(--color-border)] bg-[var(--color-bg-elevated)]';
+                return (
+                  <div
+                    key={a.institution}
+                    className={`p-2 border rounded text-sm flex items-center justify-between gap-2 ${tone}`}
+                  >
+                    <span className="font-medium flex items-baseline gap-1">
+                      {a.institution}
+                      {isSbi && (
+                        <span className="text-[10px] text-[var(--color-text-muted)]">
+                          [SBI 系]
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-xs flex items-baseline gap-1">
+                      {a.hasError ? (
+                        <span className="text-[var(--color-negative)]">
+                          エラー{a.errorMessage ? `: ${a.errorMessage.slice(0, 30)}` : ''}
+                        </span>
+                      ) : a.inProgress ? (
+                        <span className="text-[var(--color-accent)]">更新中 (phase {a.phase})</span>
+                      ) : (
+                        <span className="text-[var(--color-positive)]">完了</span>
+                      )}
+                      {a.lastUpdated && (
+                        <span className="text-[var(--color-text-muted)]">
+                          ({a.lastUpdated})
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
       </section>

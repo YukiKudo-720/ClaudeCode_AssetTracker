@@ -262,3 +262,16 @@ model ScrapeRun {
   errorMsg        String?
   accountsTouched Int       @default(0)
 }
+
+// MF 連携口座ごとの更新状況スナップショット。
+// PC の mf-orchestrate.ts が check-status 実行後に POST /api/mf-status で更新する。
+// 1 機関 = 1 行 (institution が primary key)、毎回上書き。
+model MfAccountStatus {
+  institution  String   @id  // '住信SBIネット銀行' 'SBI証券' 等 (MF 上の表示名)
+  inProgress   Boolean
+  hasError     Boolean
+  errorMessage String?
+  lastUpdated  String?  // MF 上の表示テキスト (「今」「○分前」等)
+  checkedAt    DateTime
+  phase        String   // 'A' | 'B'
+}
