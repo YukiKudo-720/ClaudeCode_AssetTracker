@@ -136,9 +136,14 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       });
     }
 
-    const totalJpy = Array.from(secMap.values()).reduce((s, a) => s + a.valueJpy, 0);
+    // 売却済 (= 数量 0 or 評価額 0) は東大タブから除外。HoldingSnapshot は履歴として
+    // 残しておくが、現状保有していないものは表示しない。
+    const liveSecs = Array.from(secMap.values()).filter(
+      (a) => a.totalQuantity > 0 && a.valueJpy > 0,
+    );
+    const totalJpy = liveSecs.reduce((s, a) => s + a.valueJpy, 0);
 
-    const assets = Array.from(secMap.values())
+    const assets = liveSecs
       .map((a) => ({
         securityId: a.securityId,
         symbol: a.symbol,
@@ -170,7 +175,7 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       children: Map<string | null, { valueJpy: number; count: number }>;
     }
     const bigMap = new Map<string | null, BigAgg>();
-    for (const a of secMap.values()) {
+    for (const a of liveSecs) {
       const bigKey = a.tagId == null ? null : bigIdOf(a.tagId);
       const leafKey = a.tagId; // 大直接割当なら leafKey===bigKey、未分類なら null
       let big = bigMap.get(bigKey);

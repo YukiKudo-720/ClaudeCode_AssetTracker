@@ -201,6 +201,72 @@ export function registerRankingRoutes(app: FastifyInstance): void {
       };
     });
 
+    // 売却銘柄: 前日には存在したが今日は存在しない (= 全部売った) 銘柄も表示。
+    // データは HoldingSnapshot に残してあるが、表示上は「今日 0 / 前日比 -100%」として
+    // ランキングに出す。前日も 0 だった銘柄 (= 持っていなかった) は自然と prevSnaps
+    // に含まれないので除外される。cash は ranking 対象外。
+    type PrevAgg = {
+      securityId: string;
+      symbol: string;
+      name: string;
+      currency: string;
+      assetClass: string;
+      prevValueJpy: number;
+      accounts: Array<{ institution: string; label: string }>;
+      categories: Array<{ id: string; name: string }>;
+    };
+    const prevAggMap = new Map<string, PrevAgg>();
+    // canonical を先に決めるため createdAt asc でソート
+    prevSnaps.sort(
+      (x, y) =>
+        x.holding.security.createdAt.getTime() - y.holding.security.createdAt.getTime(),
+    );
+    for (const hs of prevSnaps) {
+      const s = hs.holding.security;
+      if (s.assetClass === 'cash') continue;
+      const k = `${s.symbol}|${s.currency}`;
+      let agg = prevAggMap.get(k);
+      if (!agg) {
+        agg = {
+          securityId: s.id,
+          symbol: s.symbol,
+          name: s.name,
+          currency: s.currency,
+          assetClass: s.assetClass,
+          prevValueJpy: 0,
+          accounts: [],
+          categories: s.categories.map((c) => ({
+            id: c.categoryId,
+            name: c.category.name,
+          })),
+        };
+        prevAggMap.set(k, agg);
+      }
+      agg.prevValueJpy += Number(hs.marketValueJpy);
+      const a = hs.holding.account;
+      if (!agg.accounts.some((x) => x.institution === a.institution && x.label === a.label)) {
+        agg.accounts.push({ institution: a.institution, label: a.label });
+      }
+    }
+    for (const [k, prevAgg] of prevAggMap) {
+      if (map.has(k)) continue; // 今日も保有あり → 既に items にある
+      if (prevAgg.prevValueJpy <= 0) continue; // 前日も 0 → 表示しない
+      items.push({
+        securityId: prevAgg.securityId,
+        symbol: prevAgg.symbol,
+        name: prevAgg.name,
+        currency: prevAgg.currency,
+        assetClass: prevAgg.assetClass,
+        totalValueJpy: 0,
+        prevValueJpy: prevAgg.prevValueJpy,
+        diffJpy: -prevAgg.prevValueJpy,
+        diffRatio: -1, // 全損 (= 売却)
+        priceDiffRatio: null,
+        accounts: prevAgg.accounts,
+        categories: prevAgg.categories,
+      });
+    }
+
     items.sort((x, y) => {
       if (sortBy === 'ratio') {
         // ratio は null を末尾に寄せる

@@ -95,6 +95,10 @@ export function Accounts() {
       {/* 追加: 口座ごとの前日比 + カテゴリ別ブレークダウン */}
       <section>
         <h2 className="text-base font-semibold mb-3">前日比 / カテゴリ別内訳</h2>
+        <p className="text-xs text-[var(--color-text-muted)] mb-3">
+          ※ 口座総額と前日比は scrape 時点の値 (JST 24:00 区切り)、カテゴリ別内訳は
+          市場別境界 (日本株 JST 9:00 / 米株 ET 0:00) で集計。両者の合計が少しずれることがあります。
+        </p>
         <div className="grid gap-3 md:grid-cols-2">
           {data.map((a) => {
             const inst = INSTITUTION_LABELS[a.institution as Institution] ?? a.institution;
