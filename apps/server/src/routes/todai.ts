@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { recentThresholdDateString } from '../lib/date.js';
 
 const TODAI_KIND = 'todai';
 
@@ -48,6 +49,11 @@ export function registerTodaiRoutes(app: FastifyInstance): void {
       const arr = byHolding.get(hs.holdingId) ?? [];
       arr.push(hs);
       byHolding.set(hs.holdingId, arr);
+    }
+    // 直近 N 日に動きがない holding は除外
+    const recentDate = recentThresholdDateString();
+    for (const [hid, arr] of byHolding) {
+      if (!arr[0] || arr[0].marketDate < recentDate) byHolding.delete(hid);
     }
     const snapshots = [...byHolding.values()].map((arr) => arr[0]!).filter(Boolean);
     // 表示用日付: 全 holding 最新 marketDate の最大

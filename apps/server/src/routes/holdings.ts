@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
+import { recentThresholdDateString } from '../lib/date.js';
 
 // 銘柄 (Security) 単位で全口座を跨いで集約。
 // 各 holding ごとに最新 marketDate (= 銘柄ごとの「市場の今日」) と前日 marketDate の値を使う。
@@ -28,6 +29,11 @@ export function registerHoldingsRoutes(app: FastifyInstance): void {
       const arr = byHolding.get(hs.holdingId) ?? [];
       arr.push(hs);
       byHolding.set(hs.holdingId, arr);
+    }
+    // 直近 N 日に動きがない holding は除外 (= adapter から消えた持ち高の残骸を集計しない)
+    const recentDate = recentThresholdDateString();
+    for (const [hid, arr] of byHolding) {
+      if (!arr[0] || arr[0].marketDate < recentDate) byHolding.delete(hid);
     }
 
     type Acc = {

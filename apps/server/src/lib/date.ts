@@ -34,6 +34,17 @@ function toEtDateString(date: Date): string {
 //
 // この設計により、scrape をいつ実行しても (深夜含む) 銘柄ごとに「市場の今日」が
 // 正しい日付として記録される。
+// 集計で「持ち高として有効」と判定する範囲 (= 直近 N 日以内に snapshot が更新されている)。
+// 4 日に設定すれば週末 (土・日) を挟んでも金曜のデータが拾える。
+// adapter から消えた holding (例: 通貨建て変更で USD_CASH → JPY_CASH に切替) の古い
+// snapshot を「現存」と誤認する事故を防ぐ。
+export const RECENT_HOLDING_DAYS = 4;
+
+export function recentThresholdDateString(now: Date = new Date()): string {
+  const ms = now.getTime() - RECENT_HOLDING_DAYS * 24 * 60 * 60 * 1000;
+  return new Date(ms).toISOString().slice(0, 10);
+}
+
 export function toMarketDateString(date: Date, region: string | null): string {
   if (region === 'us') return toEtDateString(date);
   // 日本株 (jp / その他) は JST 9h オフセット

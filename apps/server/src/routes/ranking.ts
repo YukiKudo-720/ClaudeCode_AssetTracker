@@ -1,6 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { recentThresholdDateString } from '../lib/date.js';
 
 // 当日 (= 最新 capturedDate) と前日の HoldingSnapshot を (symbol, currency) で集約し、
 // 騰落額 / 騰落率でランキング。口座 (accountId) とテーマ (categoryId) でフィルタ可能。
@@ -67,6 +68,14 @@ export function registerRankingRoutes(app: FastifyInstance): void {
       const arr = byHolding.get(hs.holdingId) ?? [];
       arr.push(hs);
       byHolding.set(hs.holdingId, arr);
+    }
+    // date 未指定 (= 当日) の場合は直近 N 日に動きがない holding を除外。
+    // date 指定時はその日に存在した holding を見たいので除外しない。
+    if (!date) {
+      const recentDate = recentThresholdDateString();
+      for (const [hid, arr] of byHolding) {
+        if (!arr[0] || arr[0].marketDate < recentDate) byHolding.delete(hid);
+      }
     }
 
     // 各 holding ごとに「target 以前で最新」を today、それより前を prev として選定。

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
+import { recentThresholdDateString } from '../lib/date.js';
 
 // Category 別の保有資産集計。各 holding ごとに最新 marketDate と前日 marketDate を
 // 採用するので、日本株と米株で「1 日」がずれる場合も独立して正しく前日比が出る。
@@ -37,6 +38,11 @@ export function registerCategoriesRoutes(app: FastifyInstance): void {
       const arr = byHolding.get(hs.holdingId) ?? [];
       arr.push(hs);
       byHolding.set(hs.holdingId, arr);
+    }
+    // 直近 N 日に動きがない holding は除外 (adapter から消えた持ち高の残骸対策)
+    const recentDate = recentThresholdDateString();
+    for (const [hid, arr] of byHolding) {
+      if (!arr[0] || arr[0].marketDate < recentDate) byHolding.delete(hid);
     }
 
     // 全 holding の最新 snapshot (Security.createdAt で canonical 順にソート)

@@ -1,5 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
+import { recentThresholdDateString } from '../lib/date.js';
 
 // 口座総額と breakdown を HoldingSnapshot ベースで集約。
 // 各 holding ごとに最新 marketDate / 前日 marketDate の値を使うので、
@@ -28,6 +29,11 @@ export function registerAccountRoutes(app: FastifyInstance): void {
       const arr = byHolding.get(hs.holdingId) ?? [];
       arr.push(hs);
       byHolding.set(hs.holdingId, arr);
+    }
+    // 直近 N 日に動きがない holding は除外
+    const recentDate = recentThresholdDateString();
+    for (const [hid, arr] of byHolding) {
+      if (!arr[0] || arr[0].marketDate < recentDate) byHolding.delete(hid);
     }
 
     const summaries = await Promise.all(
