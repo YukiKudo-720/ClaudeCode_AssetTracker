@@ -141,11 +141,12 @@ export function Accounts() {
                   </p>
                 )}
 
-                {a.prevCapturedDate && (
-                  <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-                    前日比は {a.prevCapturedDate} との差分
-                  </p>
-                )}
+                <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                  {a.latestCapturedDate
+                    ? `最新: ${a.latestCapturedDate}`
+                    : '最新スナップショット無し'}
+                  {a.prevCapturedDate ? ` / 前日比は ${a.prevCapturedDate} との差分` : ''}
+                </p>
               </div>
             );
           })}

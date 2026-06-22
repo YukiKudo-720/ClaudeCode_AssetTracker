@@ -69,6 +69,7 @@ export const AccountSummarySchema = z.object({
   enabled: z.boolean(),
   latestTotalJpy: z.number().nullable(),
   latestCapturedAt: z.string().nullable(),
+  latestCapturedDate: z.string().nullable(),
   prevTotalJpy: z.number().nullable(),
   prevCapturedDate: z.string().nullable(),
   breakdown: z.array(AccountAssetBreakdownSchema),

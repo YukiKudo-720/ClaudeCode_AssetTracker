@@ -2,9 +2,13 @@ import type { FastifyInstance } from 'fastify';
 import { prisma } from '../db.js';
 import { recentThresholdDateString } from '../lib/date.js';
 
-// 口座総額と breakdown を HoldingSnapshot ベースで集約。
-// 各 holding ごとに最新 marketDate / 前日 marketDate の値を使うので、
-// 日本株と米株で「1 日」がずれていても口座総額の前日比が正しく出る。
+// 口座総額は AccountSnapshot (= adapter が直接返した値) ベースで一貫させる。
+// 前日比も AccountSnapshot 同士で比較するので JST capturedDate 基準。
+// 一方、assetClass 別 breakdown は HoldingSnapshot から集計するため、
+// 日本株は JST 9:00 区切り、米株は ET 0:00 区切りの marketDate ベース。
+//
+// 両者の境界が違うので「口座総額」と「breakdown の合計」がぴったり一致しない
+// ことがあるが、これは設計上の妥協 (adapter ベース vs 銘柄ベースの目的の違い)。
 export function registerAccountRoutes(app: FastifyInstance): void {
   app.get('/api/accounts', async () => {
     const accounts = await prisma.account.findMany({
@@ -12,7 +16,7 @@ export function registerAccountRoutes(app: FastifyInstance): void {
       orderBy: { createdAt: 'asc' },
     });
 
-    // 直近 14 日の全 HoldingSnapshot を取得 (各 holding ごとに最新と前日を選定)
+    // breakdown 用: 直近 14 日の HoldingSnapshot
     const sinceMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
     const sinceStr = new Date(sinceMs).toISOString().slice(0, 10);
     const allSnapshots = await prisma.holdingSnapshot.findMany({
@@ -23,14 +27,13 @@ export function registerAccountRoutes(app: FastifyInstance): void {
       orderBy: { marketDate: 'desc' },
     });
 
-    // holdingId ごとに [latest, prev, ...] (marketDate 降順)
     const byHolding = new Map<string, typeof allSnapshots>();
     for (const hs of allSnapshots) {
       const arr = byHolding.get(hs.holdingId) ?? [];
       arr.push(hs);
       byHolding.set(hs.holdingId, arr);
     }
-    // 直近 N 日に動きがない holding は除外
+    // 直近 N 日に動きが無い holding は除外 (adapter から消えた持ち高の残骸対策)
     const recentDate = recentThresholdDateString();
     for (const [hid, arr] of byHolding) {
       if (!arr[0] || arr[0].marketDate < recentDate) byHolding.delete(hid);
@@ -38,13 +41,16 @@ export function registerAccountRoutes(app: FastifyInstance): void {
 
     const summaries = await Promise.all(
       accounts.map(async (a) => {
-        // 既存の latestCapturedAt 用に AccountSnapshot は引き続き参照
-        const latestAccSnap = await prisma.accountSnapshot.findFirst({
+        // 口座総額: AccountSnapshot から最新と前日 (capturedDate 降順 2 件)
+        const accSnaps = await prisma.accountSnapshot.findMany({
           where: { accountId: a.id },
           orderBy: { capturedDate: 'desc' },
+          take: 2,
         });
+        const latestAcc = accSnaps[0] ?? null;
+        const prevAcc = accSnaps[1] ?? null;
 
-        // この account に紐づく holding の最新 / 前日 HoldingSnapshot を抜き出す
+        // breakdown: この account に紐づく holding の最新 / 前日 HoldingSnapshot
         const accountHoldings = await prisma.holding.findMany({
           where: { accountId: a.id },
           select: { id: true },
@@ -61,34 +67,27 @@ export function registerAccountRoutes(app: FastifyInstance): void {
 
         function aggregateByAssetClass(
           snaps: typeof allSnapshots,
-        ): { total: number; map: Map<string, number> } {
-          let total = 0;
-          const map = new Map<string, number>();
+        ): Map<string, number> {
+          const m = new Map<string, number>();
           for (const hs of snaps) {
             const cls = hs.holding.security.assetClass;
             const v = Number(hs.marketValueJpy);
-            total += v;
-            map.set(cls, (map.get(cls) ?? 0) + v);
+            m.set(cls, (m.get(cls) ?? 0) + v);
           }
-          return { total, map };
+          return m;
         }
+        const todayMap = aggregateByAssetClass(latestSnaps);
+        const prevMap = aggregateByAssetClass(prevSnaps);
+        const hasPrevBreakdown = prevSnaps.length > 0;
 
-        const today = aggregateByAssetClass(latestSnaps);
-        const prev = aggregateByAssetClass(prevSnaps);
-        const hasPrev = prevSnaps.length > 0;
-
-        const allClasses = new Set([...today.map.keys(), ...prev.map.keys()]);
+        const allClasses = new Set([...todayMap.keys(), ...prevMap.keys()]);
         const breakdown = [...allClasses]
           .map((cls) => ({
             assetClass: cls,
-            valueJpy: today.map.get(cls) ?? 0,
-            prevValueJpy: hasPrev ? prev.map.get(cls) ?? 0 : null,
+            valueJpy: todayMap.get(cls) ?? 0,
+            prevValueJpy: hasPrevBreakdown ? prevMap.get(cls) ?? 0 : null,
           }))
           .sort((x, y) => y.valueJpy - x.valueJpy);
-
-        // 表示用日付: holding の中で一番新しい marketDate / その前
-        const dateSet = new Set(latestSnaps.map((hs) => hs.marketDate));
-        const allDatesDesc = [...dateSet].sort().reverse();
 
         return {
           id: a.id,
@@ -99,10 +98,11 @@ export function registerAccountRoutes(app: FastifyInstance): void {
           baseCurrency: a.baseCurrency,
           tags: JSON.parse(a.tags) as string[],
           enabled: a.enabled,
-          latestTotalJpy: latestSnaps.length > 0 ? today.total : null,
-          latestCapturedAt: latestAccSnap ? latestAccSnap.capturedAt.toISOString() : null,
-          prevTotalJpy: hasPrev ? prev.total : null,
-          prevCapturedDate: allDatesDesc[1] ?? null,
+          latestTotalJpy: latestAcc ? Number(latestAcc.totalValueJpy) : null,
+          latestCapturedAt: latestAcc ? latestAcc.capturedAt.toISOString() : null,
+          latestCapturedDate: latestAcc ? latestAcc.capturedDate : null,
+          prevTotalJpy: prevAcc ? Number(prevAcc.totalValueJpy) : null,
+          prevCapturedDate: prevAcc ? prevAcc.capturedDate : null,
           breakdown,
         };
       }),
