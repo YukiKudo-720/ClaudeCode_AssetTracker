@@ -96,8 +96,8 @@ export function Accounts() {
       <section>
         <h2 className="text-base font-semibold mb-3">前日比 / カテゴリ別内訳</h2>
         <p className="text-xs text-[var(--color-text-muted)] mb-3">
-          ※ 口座総額と前日比は scrape 時点の値 (JST 24:00 区切り)、カテゴリ別内訳は
-          市場別境界 (日本株 JST 9:00 / 米株 ET 0:00) で集計。両者の合計が少しずれることがあります。
+          ※ 集計はすべて市場別 marketDate (日本株 JST 9:00 / 米株 ET 0:00) ベース。
+          各 holding の最新 marketDate を「当日」、その前を「前日」として比較します。
         </p>
         <div className="grid gap-3 md:grid-cols-2">
           {data.map((a) => {
