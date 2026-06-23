@@ -41,14 +41,28 @@ export function registerAccountRoutes(app: FastifyInstance): void {
 
     const summaries = await Promise.all(
       accounts.map(async (a) => {
-        // 口座総額: AccountSnapshot から最新と前日 (capturedDate 降順 2 件)
-        const accSnaps = await prisma.accountSnapshot.findMany({
+        // 口座総額: AccountSnapshot から直近 5 件を取って、異常 (前日比 50% 以上減) の
+        // ものを scrape 部分失敗とみなしてスキップ。1 日で 50% 以上減るのは
+        // 通常運用ではあり得ない (= adapter が銘柄を取りこぼした証拠)。
+        const recentAccSnaps = await prisma.accountSnapshot.findMany({
           where: { accountId: a.id },
           orderBy: { capturedDate: 'desc' },
-          take: 2,
+          take: 5,
         });
-        const latestAcc = accSnaps[0] ?? null;
-        const prevAcc = accSnaps[1] ?? null;
+        // 各 snap を「1 つ古い snap」と比較し、50% 未満なら異常 (= adapter 部分失敗)
+        // と判定してスキップ。残ったうち最新 / 次を採用。
+        const goodSnaps: typeof recentAccSnaps = [];
+        for (let i = 0; i < recentAccSnaps.length; i++) {
+          const snap = recentAccSnaps[i]!;
+          const next = recentAccSnaps[i + 1];
+          const baseline = next ? Number(next.totalValueJpy) : null;
+          const v = Number(snap.totalValueJpy);
+          if (baseline != null && baseline > 0 && v < baseline * 0.5) continue;
+          goodSnaps.push(snap);
+          if (goodSnaps.length >= 2) break;
+        }
+        const latestAcc = goodSnaps[0] ?? null;
+        const prevAcc = goodSnaps[1] ?? null;
 
         // breakdown: この account に紐づく holding の最新 / 前日 HoldingSnapshot
         const accountHoldings = await prisma.holding.findMany({

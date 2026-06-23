@@ -20,12 +20,13 @@ export function registerHistoryRoutes(app: FastifyInstance): void {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const sinceStr = since.toISOString().slice(0, 10);
 
-    const [accGrouped, holdingSnaps] = await Promise.all([
-      prisma.accountSnapshot.groupBy({
-        by: ['capturedDate'],
+    const [accAll, holdingSnaps] = await Promise.all([
+      // groupBy ではなく account 単位で取って、異常 snap (= 前日比 50% 以上減 = adapter
+      // 部分失敗の証拠) を弾いてから集計する。
+      prisma.accountSnapshot.findMany({
         where: { capturedDate: { gte: sinceStr } },
-        _sum: { totalValueJpy: true, cashJpy: true },
-        orderBy: { capturedDate: 'asc' },
+        orderBy: [{ accountId: 'asc' }, { capturedDate: 'desc' }],
+        select: { accountId: true, capturedDate: true, totalValueJpy: true, cashJpy: true },
       }),
       prisma.holdingSnapshot.findMany({
         where: { capturedDate: { gte: sinceStr } },
@@ -36,6 +37,33 @@ export function registerHistoryRoutes(app: FastifyInstance): void {
         },
       }),
     ]);
+
+    // 異常 snap を除外: account ごとに新しい順に並べ、各 snap が「1 つ古い snap の
+    // 50% 未満」なら除外。
+    const byAccount = new Map<string, typeof accAll>();
+    for (const s of accAll) {
+      const arr = byAccount.get(s.accountId) ?? [];
+      arr.push(s);
+      byAccount.set(s.accountId, arr);
+    }
+    const byDateTotals = new Map<string, { total: number; cash: number }>();
+    for (const arr of byAccount.values()) {
+      // arr は capturedDate desc 順
+      for (let i = 0; i < arr.length; i++) {
+        const snap = arr[i]!;
+        const next = arr[i + 1];
+        const baseline = next ? Number(next.totalValueJpy) : null;
+        const v = Number(snap.totalValueJpy);
+        if (baseline != null && baseline > 0 && v < baseline * 0.5) continue;
+        const acc = byDateTotals.get(snap.capturedDate) ?? { total: 0, cash: 0 };
+        acc.total += v;
+        acc.cash += Number(snap.cashJpy);
+        byDateTotals.set(snap.capturedDate, acc);
+      }
+    }
+    const accGrouped = [...byDateTotals.entries()]
+      .map(([date, v]) => ({ capturedDate: date, total: v.total, cash: v.cash }))
+      .sort((a, b) => a.capturedDate.localeCompare(b.capturedDate));
 
     // date -> assetClass -> sum(marketValueJpy)
     const byDate = new Map<string, Map<string, number>>();
@@ -56,8 +84,8 @@ export function registerHistoryRoutes(app: FastifyInstance): void {
         const valueOf = (cls: string): number => buckets?.get(cls) ?? 0;
         return {
           date: g.capturedDate,
-          totalJpy: Number(g._sum.totalValueJpy ?? 0),
-          cashJpy: Number(g._sum.cashJpy ?? 0),
+          totalJpy: g.total,
+          cashJpy: g.cash,
           // assetClass 別 (該当無しは 0)
           cash: valueOf('cash'),
           fx: valueOf('fx'),
