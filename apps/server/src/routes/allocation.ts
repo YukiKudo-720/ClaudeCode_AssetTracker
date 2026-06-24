@@ -1,26 +1,18 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../db.js';
+import { recentThresholdDateString } from '../lib/date.js';
 
 const QuerySchema = z.object({
   by: z.enum(['currency', 'assetClass', 'region', 'institution']).default('assetClass'),
 });
 
-// baseCurrency → region 推定 (cash の region 軸用、銀行・証券口座の所在国とほぼ一致)
-function regionFromCurrency(currency: string): string {
-  switch (currency) {
-    case 'JPY': return 'jp';
-    case 'USD': return 'us';
-    case 'HKD': return 'hk';
-    case 'CNY':
-    case 'CNH': return 'cn';
-    case 'EUR': return 'eu';
-    default: return 'other';
-  }
-}
-
-// 最新時点の資産配分。軸 (by) は currency / assetClass / region / institution。
-// 銀行残高や証券口座内の現金 (AccountSnapshot.cashJpy) もここで合算する。
+// 最新時点の資産配分 (ダッシュボードの円グラフ用)。
+// 集計軸 (by) は currency / assetClass / region / institution。
+//
+// 全ルートで統一: HoldingSnapshot + marketDate ベース。
+// 各 holding の最新 marketDate のスナップショットを採用 (2 重カウント無し)。
+// 直近 N 日に動きが無い holding は除外 (= adapter から消えた持ち高の残骸対策)。
 export function registerAllocationRoutes(app: FastifyInstance): void {
   app.get('/api/allocation', async (req, reply) => {
     const parsed = QuerySchema.safeParse(req.query);
@@ -29,36 +21,43 @@ export function registerAllocationRoutes(app: FastifyInstance): void {
     }
     const { by } = parsed.data;
 
-    const latest = await prisma.accountSnapshot.findFirst({
-      orderBy: { capturedDate: 'desc' },
-      select: { capturedDate: true },
+    const sinceMs = Date.now() - 14 * 24 * 60 * 60 * 1000;
+    const sinceStr = new Date(sinceMs).toISOString().slice(0, 10);
+    const allSnaps = await prisma.holdingSnapshot.findMany({
+      where: { marketDate: { gte: sinceStr } },
+      include: { holding: { include: { security: true, account: true } } },
+      orderBy: { marketDate: 'desc' },
     });
-    if (!latest) {
+    if (allSnaps.length === 0) {
       return { capturedDate: null, by, totalJpy: 0, buckets: [] };
     }
 
-    // 全体合計 = AccountSnapshot.totalValueJpy の合計 (cash + holdings 含む)
-    const accountSnapshots = await prisma.accountSnapshot.findMany({
-      where: { capturedDate: latest.capturedDate },
-      include: { account: true },
-    });
-    const totalJpy = accountSnapshots.reduce((s, as) => s + Number(as.totalValueJpy), 0);
+    // holding ごとに最新 marketDate
+    const byHolding = new Map<string, typeof allSnaps>();
+    for (const hs of allSnaps) {
+      const arr = byHolding.get(hs.holdingId) ?? [];
+      arr.push(hs);
+      byHolding.set(hs.holdingId, arr);
+    }
+    const recentDate = recentThresholdDateString();
+    const latestSnaps: typeof allSnaps = [];
+    for (const arr of byHolding.values()) {
+      if (arr[0] && arr[0].marketDate >= recentDate) latestSnaps.push(arr[0]);
+    }
 
-    const holdingSnapshots = await prisma.holdingSnapshot.findMany({
-      where: { capturedDate: latest.capturedDate },
-      include: { holding: { include: { security: true, account: true } } },
-    });
+    const totalJpy = latestSnaps.reduce((s, hs) => s + Number(hs.marketValueJpy), 0);
+    const headerDate = [...new Set(latestSnaps.map((hs) => hs.marketDate))]
+      .sort()
+      .reverse()[0] ?? null;
 
     const map = new Map<string, { label: string; valueJpy: number }>();
-
     function add(key: string, label: string, valueJpy: number): void {
       const cur = map.get(key) ?? { label, valueJpy: 0 };
       cur.valueJpy += valueJpy;
       map.set(key, cur);
     }
 
-    // 1. Holdings 部分の集計
-    for (const hs of holdingSnapshots) {
+    for (const hs of latestSnaps) {
       const valueJpy = Number(hs.marketValueJpy);
       const s = hs.holding.security;
       const a = hs.holding.account;
@@ -78,9 +77,6 @@ export function registerAllocationRoutes(app: FastifyInstance): void {
       }
     }
 
-    // cash は adapter 側で Holdings (assetClass='cash') として emit されるため、
-    // ここで synthetic 追加は不要 (上の holdings ループで自然に集計される)
-
     const buckets = Array.from(map.entries())
       .map(([key, v]) => ({
         key,
@@ -90,6 +86,6 @@ export function registerAllocationRoutes(app: FastifyInstance): void {
       }))
       .sort((a, b) => b.valueJpy - a.valueJpy);
 
-    return { capturedDate: latest.capturedDate, by, totalJpy, buckets };
+    return { capturedDate: headerDate, by, totalJpy, buckets };
   });
 }
